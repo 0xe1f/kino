@@ -58,50 +58,36 @@ function setScanLoading(isLoading) {
 
 function setupScanButton() {
   const button = document.getElementById("scan-trigger");
-  const statusEl = document.getElementById("scan-status");
-  if (!button || !statusEl) return;
+  if (!button) return;
 
   let sawCompletion = false;
 
   button.addEventListener("click", async () => {
     setScanLoading(true);
-    statusEl.textContent = "Scan request sent...";
     sawCompletion = false;
     try {
-      const result = await requestJSON("/api/scan/trigger", { method: "POST" });
-      statusEl.textContent = result.message || "Scan requested";
+      await requestJSON("/api/scan/trigger", { method: "POST" });
     } catch (err) {
-      statusEl.textContent = String(err.message || err);
+      showToast(`Scan error: ${err.message || err}`);
       setScanLoading(false);
     }
   });
 
   if (typeof io === "function") {
     const socket = io();
-    socket.on("scan_started", (payload = {}) => {
+    socket.on("scan_started", () => {
       setScanLoading(true);
-      statusEl.textContent = `Scan started at ${payload.started_at || "now"}`;
-    });
-    socket.on("scan_progress", (payload = {}) => {
-      const phase = payload.phase || "working";
-      if (typeof payload.processed === "number" && typeof payload.total === "number") {
-        statusEl.textContent = `${phase}: ${payload.processed}/${payload.total}`;
-      } else if (typeof payload.videos === "number") {
-        statusEl.textContent = `${phase}: ${payload.videos} videos found`;
-      } else {
-        statusEl.textContent = `${phase}...`;
-      }
     });
     socket.on("scan_completed", (payload = {}) => {
       if (sawCompletion) return;
       sawCompletion = true;
       setScanLoading(false);
-      statusEl.textContent = `Scan completed at ${payload.finished_at || "now"}. Refreshing...`;
+      showToast("Library scan complete. Refreshing...");
       setTimeout(() => window.location.reload(), 800);
     });
     socket.on("scan_failed", (payload = {}) => {
       setScanLoading(false);
-      statusEl.textContent = `Scan failed: ${payload.error || "unknown error"}`;
+      showToast(`Scan failed: ${payload.error || "unknown error"}`);
     });
   }
 
@@ -109,19 +95,9 @@ function setupScanButton() {
     .then((status) => {
       if (status.running) {
         setScanLoading(true);
-        statusEl.textContent = "Scan in progress...";
-      } else if (status.last_error) {
-        setScanLoading(false);
-        statusEl.textContent = `Last scan failed: ${status.last_error}`;
-      } else if (status.last_finished_at) {
-        setScanLoading(false);
-        statusEl.textContent = `Last scan finished at ${status.last_finished_at}`;
       }
     })
-    .catch((err) => {
-      statusEl.textContent = String(err.message || err);
-      setScanLoading(false);
-    });
+    .catch(() => {});
 }
 
 function setupThemeToggle() {
@@ -386,8 +362,21 @@ function setupVideoRowActions() {
   }
 }
 
+function setupLocalDates() {
+  document.querySelectorAll("time.local-date[datetime]").forEach((el) => {
+    const date = new Date(el.getAttribute("datetime"));
+    if (isNaN(date)) return;
+    el.textContent = date.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  });
+}
+
 setupScanButton();
 setupUserMenu();
 setupThemeToggle();
 setupVideoPlayer();
 setupVideoRowActions();
+setupLocalDates();

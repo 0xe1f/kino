@@ -1,0 +1,86 @@
+import os
+import threading
+from typing import Any
+
+from db import db
+from utils import normalize_username, now_iso
+
+_migration_lock = threading.Lock()
+_migration_done = False
+
+LEGACY_USERNAME_BASE_ENV = "KINO_LEGACY_USERNAME_BASE"
+
+
+def run_phase3_migration() -> None:
+    global _migration_done
+    if _migration_done:
+        return
+    with _migration_lock:
+        if _migration_done:
+            return
+        marker = db.get("migration:phase3-account-ui")
+        if marker:
+            _migration_done = True
+            return
+
+        users = sorted(
+            db.find_many("user"),
+            key=lambda u: (u.get("created_at", ""), u.get("user_id", "")),
+        )
+        used_usernames: set[str] = {
+            normalize_username(u.get("username", "")).lower()
+            for u in users
+            if normalize_username(u.get("username", ""))
+        }
+        missing_username_users = [
+            u for u in users if not normalize_username(u.get("username", ""))
+        ]
+
+        users_updated = 0
+        if missing_username_users:
+            base = normalize_username(os.getenv(LEGACY_USERNAME_BASE_ENV, ""))
+            if not base:
+                raise RuntimeError(
+                    f"{LEGACY_USERNAME_BASE_ENV} is required to migrate existing users "
+                    "missing usernames."
+                )
+            next_suffix = 1
+            for user in missing_username_users:
+                while True:
+                    candidate = base if next_suffix == 1 else f"{base}{next_suffix}"
+                    next_suffix += 1
+                    if candidate.lower() not in used_usernames:
+                        break
+                user["username"] = candidate
+                user["updated_at"] = now_iso()
+                db.save(user)
+                used_usernames.add(candidate.lower())
+                users_updated += 1
+
+        videos_updated = 0
+        for video_doc in db.find_many("video"):
+            if "dislikes" not in video_doc:
+                continue
+            video_doc.pop("dislikes", None)
+            video_doc["updated_at"] = now_iso()
+            db.save(video_doc)
+            videos_updated += 1
+
+        reactions_deleted = 0
+        for reaction_doc in db.find_many("reaction"):
+            if reaction_doc.get("value") == "like":
+                continue
+            db.delete(reaction_doc)
+            reactions_deleted += 1
+
+        db.save(
+            {
+                "_id": "migration:phase3-account-ui",
+                "type": "migration",
+                "users_updated": users_updated,
+                "videos_updated": videos_updated,
+                "reactions_deleted": reactions_deleted,
+                "completed_at": now_iso(),
+            }
+        )
+        _migration_done = True

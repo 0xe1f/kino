@@ -69,6 +69,10 @@ input { width: 100%; }
 }
 .site-header nav { display: flex; align-items: center; gap: 12px; }
 
+#theme-toggle-icon {
+  font-variation-settings: 'FILL' 1;
+}
+
 .brand {
   font-size: 20px;
   font-weight: 700;
@@ -98,6 +102,10 @@ input { width: 100%; }
   font-variation-settings: 'FILL' 1;
 }
 
+.added-time {
+  font-size: 12pt;
+}
+
 .user-menu {
   position: relative;
 }
@@ -124,6 +132,10 @@ input { width: 100%; }
   display: grid;
   gap: 6px;
   z-index: 10;
+}
+
+a.menu-item {
+  color: var(--text);
 }
 
 .menu-item {
@@ -263,10 +275,6 @@ input { width: 100%; }
   transition: background-color 0.15s ease;
 }
 
-.list li:hover {
-  background: var(--row-hover);
-}
-
 .row-link {
   display: flex;
   padding-top: 8px;
@@ -352,6 +360,21 @@ input { width: 100%; }
   width: 96px;
   height: 54px;
   flex: 0 0 96px;
+}
+
+.row-prefix {
+  flex: 0 0 2.5em;
+  width: 1.5em;
+  font-size: 10pt;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: center;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.active-row .row-prefix {
+  color: var(--text);
 }
 
 .row-title {

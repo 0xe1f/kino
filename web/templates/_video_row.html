@@ -1,11 +1,11 @@
 <li class="video-row{% if active_row %} active-row{% endif %}" data-video-id="{{ video._id }}" {% if context_playlist_id %}data-context-playlist-id="{{ context_playlist_id }}"{% endif %}>
   <a class="row-link" href="{{ video_link }}">
     {% set row_thumb = thumbnail_url(video) %}
+    {% if row_prefix %}
+      <span class="row-prefix">{% if active_row %}▶{% else %}{{ row_prefix }}{% endif %}</span>
+    {% endif %}
     {% if row_thumb %}
       <img src="{{ row_thumb }}" alt="{{ video.title }} thumbnail" class="thumb thumb-sm" />
-    {% endif %}
-    {% if row_prefix %}
-      <span>{{ row_prefix }}</span>
     {% endif %}
     <span class="row-title">{{ video.title }}</span>
     <span class="muted">{{ format_duration(video.duration) }}</span>
