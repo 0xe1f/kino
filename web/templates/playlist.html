@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="panel">
+    <h1>{{ playlist.name }}</h1>
+    {% if playlist_owner %}
+      <p class="muted">Owner: {{ playlist_owner }}</p>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    {% if items %}
+      <ul class="list">
+        {% for pair in items %}
+          {% set item = pair.item %}
+          {% set target = pair.target %}
+          {% if item.item_type == "playlist" %}
+            <li>
+              <a class="row-link" href="{{ url_for('playlist_view', playlist_id=target._id) }}">
+                {% set target_thumb = thumbnail_url(target) %}
+                {% if target_thumb %}
+                  <img src="{{ target_thumb }}" alt="{{ target.name or target.title }} thumbnail" class="thumb thumb-sm" />
+                {% endif %}
+                <span>📁 {{ target.name }}</span>
+              </a>
+            </li>
+          {% else %}
+            {% set video = target %}
+            {% set video_link = url_for('video_view', video_id=target._id, playlist_id=playlist._id) %}
+            {% set row_prefix = "▶" %}
+            {% set row_meta = None %}
+            {% set active_row = False %}
+            {% include "_video_row.html" %}
+          {% endif %}
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">This playlist is empty.</p>
+    {% endif %}
+  </section>
+{% endblock %}

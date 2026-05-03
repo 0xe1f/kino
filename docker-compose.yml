@@ -1,0 +1,37 @@
+services:
+  couchdb:
+    image: couchdb:3.4
+    container_name: kino-couchdb
+    restart: unless-stopped
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: admin
+    ports:
+      - "5984:5984"
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+
+  web:
+    build:
+      context: ./web
+    container_name: kino-web
+    restart: unless-stopped
+    depends_on:
+      - couchdb
+    environment:
+      FLASK_ENV: production
+      SECRET_KEY: dev-secret-change-me
+      COUCHDB_URL: http://admin:admin@couchdb:5984/
+      COUCHDB_DB_NAME: kino
+      MEDIA_ROOT: /media/library
+      SCAN_LOCK_TTL_SECONDS: "600"
+      KINO_LEGACY_USERNAME_BASE: ${KINO_LEGACY_USERNAME_BASE:-}
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./media:/media/library:ro
+      - generated_thumbs:/app/static/generated-thumbs
+
+volumes:
+  couchdb_data:
+  generated_thumbs:

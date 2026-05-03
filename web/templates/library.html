@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="split-layout white-surface">
+    <aside class="split-nav">
+      <a class="split-nav-item {% if library_section == 'history' %}active{% endif %}" href="{{ url_for('history_page') }}">History</a>
+      <a class="split-nav-item {% if library_section == 'playlists' %}active{% endif %}" href="{{ url_for('playlists_page') }}">Playlists</a>
+      <a class="split-nav-item {% if library_section == 'favorites' %}active{% endif %}" href="{{ url_for('favorites_page') }}">Favorites</a>
+      <a class="split-nav-item {% if library_section == 'watch_later' %}active{% endif %}" href="{{ url_for('watch_later_page') }}">Watch Later</a>
+    </aside>
+    <div class="split-content">
+      {% if library_section == "history" %}
+        <h1>Playback History</h1>
+        {% if history_rows %}
+          <ul class="list">
+            {% for row in history_rows %}
+              {% set video = row.video %}
+              {% set video_link = url_for('video_view', video_id=video._id, playlist_id=row.history.playlist_id) %}
+              {% set row_prefix = None %}
+              {% set row_meta = "Watched " ~ row.history.watched_at %}
+              {% set active_row = False %}
+              {% set context_playlist_id = row.context_playlist_id %}
+              {% set context_playlist_removable = row.context_playlist_removable %}
+              {% include "_video_row.html" %}
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No playback history yet.</p>
+        {% endif %}
+      {% elif library_section == "playlists" %}
+        <h1>Your Playlists</h1>
+        {% if playlists %}
+          <ul class="list">
+            {% for playlist in playlists %}
+              <li><a class="row-link" href="{{ url_for('playlist_view', playlist_id=playlist._id) }}">{{ playlist.name }}</a></li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No custom playlists yet.</p>
+        {% endif %}
+      {% else %}
+        <h1>{{ playlist.name }}</h1>
+        {% if items %}
+          <ul class="list">
+            {% for pair in items %}
+              {% set video = pair.target %}
+              {% set video_link = url_for('video_view', video_id=video._id, playlist_id=playlist._id) %}
+              {% set row_prefix = None %}
+              {% set row_meta = None %}
+              {% set active_row = False %}
+              {% include "_video_row.html" %}
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="muted">No videos in this built-in playlist yet.</p>
+        {% endif %}
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

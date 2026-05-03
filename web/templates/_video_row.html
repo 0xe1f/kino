@@ -1,0 +1,29 @@
+<li class="video-row{% if active_row %} active-row{% endif %}" data-video-id="{{ video._id }}" {% if context_playlist_id %}data-context-playlist-id="{{ context_playlist_id }}"{% endif %}>
+  <a class="row-link" href="{{ video_link }}">
+    {% set row_thumb = thumbnail_url(video) %}
+    {% if row_thumb %}
+      <img src="{{ row_thumb }}" alt="{{ video.title }} thumbnail" class="thumb thumb-sm" />
+    {% endif %}
+    {% if row_prefix %}
+      <span>{{ row_prefix }}</span>
+    {% endif %}
+    <span class="row-title">{{ video.title }}</span>
+    <span class="muted">{{ format_duration(video.duration) }}</span>
+    {% if row_meta %}
+      <span class="muted">{{ row_meta }}</span>
+    {% endif %}
+  </a>
+  {% if user %}
+    <div class="row-actions">
+      <button class="row-icon row-menu-trigger" title="More"><span class="material-symbols-rounded">more_vert</span></button>
+      <div class="row-menu hidden">
+        <button class="row-menu-item" data-action="save-favorite">Save to Favorites</button>
+        <button class="row-menu-item" data-action="save-watch-later">Save to Watch Later</button>
+        <button class="row-menu-item" data-action="add-to-playlist">Add to playlist</button>
+        {% if context_playlist_removable %}
+          <button class="row-menu-item danger-text" data-action="remove-from-playlist">Remove from playlist</button>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+</li>

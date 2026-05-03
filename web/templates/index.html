@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="panel">
+    <div class="row">
+      <h1>Library</h1>
+      <button id="scan-trigger">Refresh</button>
+      <span id="scan-loading" class="scan-loading hidden" aria-live="polite">Scanning...</span>
+    </div>
+    <p class="muted" id="scan-status"></p>
+  </section>
+
+  {% if not has_videos %}
+    <section class="panel empty-state">
+      <p>There are currently no videos.</p>
+      <p class="muted">Click refresh to scan your media directory.</p>
+    </section>
+  {% endif %}
+
+  {% if playlists %}
+    <section class="panel">
+      <h2>Top-level playlists</h2>
+      <ul class="list">
+        {% for playlist in playlists %}
+          <li>
+            <a class="row-link" href="{{ url_for('playlist_view', playlist_id=playlist._id) }}">
+              {% set playlist_thumb = thumbnail_url(playlist) %}
+              {% if playlist_thumb %}
+                <img src="{{ playlist_thumb }}" alt="{{ playlist.name }} thumbnail" class="thumb thumb-sm" />
+              {% endif %}
+              <span>{{ playlist.name }}</span>
+              {% set owner_name = owner_username(playlist) %}
+              {% if owner_name %}
+                <span class="tag">{{ owner_name }}</span>
+              {% endif %}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+{% endblock %}

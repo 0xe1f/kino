@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="watch-layout">
+    <div class="watch-main">
+      <section class="video-stage">
+        <video
+          id="video-player"
+          autoplay
+          controls
+          preload="metadata"
+          poster="{{ thumbnail_url(video) or '' }}"
+          data-video-id="{{ video._id }}"
+          data-playlist-id="{{ playlist_id or '' }}"
+          data-resume-position="{{ resume_position or 0 }}"
+          src="{{ url_for('media_file', relative_path=video.relative_path) }}"
+          width="100%">
+        </video>
+      </section>
+
+      <section class="panel">
+        <h1>{{ video.title }}</h1>
+        {% if playlist %}
+          <p class="muted">From playlist: <a href="{{ url_for('playlist_view', playlist_id=playlist._id) }}">{{ playlist.name }}</a></p>
+        {% endif %}
+        <p class="muted">
+          Duration: {{ format_duration(video.duration) }} |
+          Views: <span id="view-count">{{ video.views or 0 }}</span> |
+          Likes: <span id="like-count">{{ video.likes or 0 }}</span>
+        </p>
+        <p class="muted">{{ video.description or "" }}</p>
+        {% if user %}
+          <div class="row">
+            <button id="like-toggle" class="{% if is_liked %}liked{% endif %}">
+              <span class="material-symbols-rounded">thumb_up</span>
+              <span>{% if is_liked %}Liked{% else %}Like{% endif %}</span>
+            </button>
+          </div>
+        {% else %}
+          <p class="muted">Login to store watch progress, history, and likes.</p>
+        {% endif %}
+      </section>
+    </div>
+
+    {% if playlist_nav %}
+      <aside class="watch-sidebar panel">
+        {% set current_video_id = video._id %}
+        <h3>{{ playlist.name }}</h3>
+        <p class="muted">
+          {{ playlist_nav.count }} videos |
+          {{ format_duration(playlist_nav.total_duration) }}
+        </p>
+        <div class="row">
+          {% if playlist_nav.previous_video_id %}
+            <a class="menu-item" href="{{ url_for('video_view', video_id=playlist_nav.previous_video_id, playlist_id=playlist._id) }}">Previous</a>
+          {% else %}
+            <span class="muted">Previous</span>
+          {% endif %}
+          {% if playlist_nav.next_video_id %}
+            <a class="menu-item" href="{{ url_for('video_view', video_id=playlist_nav.next_video_id, playlist_id=playlist._id) }}">Next</a>
+          {% else %}
+            <span class="muted">Next</span>
+          {% endif %}
+          <span class="tag">Auto-advance on</span>
+        </div>
+        <ul class="list">
+          {% for pair in playlist_nav["items"] %}
+            {% set target = pair.target %}
+            {% set video = target %}
+            {% set video_link = url_for('video_view', video_id=target._id, playlist_id=playlist._id) %}
+            {% set row_prefix = loop.index ~ "." %}
+            {% set row_meta = None %}
+            {% set active_row = target._id == current_video_id %}
+            {% include "_video_row.html" %}
+          {% endfor %}
+        </ul>
+      </aside>
+    {% endif %}
+  </section>
+{% endblock %}

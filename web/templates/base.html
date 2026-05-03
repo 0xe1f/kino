@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en" data-theme="{{ theme }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>kino</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:FILL@1" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body data-is-authenticated="{{ 'true' if user else 'false' }}">
+    <header class="site-header">
+      <a href="{{ url_for('index') }}" class="brand">kino</a>
+      <nav>
+        <button id="theme-toggle" class="icon-button" type="button" aria-label="Toggle theme">
+          <span class="material-symbols-rounded" id="theme-toggle-icon">
+            {% if theme == "day" %}wb_sunny{% else %}dark_mode{% endif %}
+          </span>
+        </button>
+        {% if user %}
+          <details class="user-menu">
+            <summary class="user-menu-summary">{{ user.username }}</summary>
+            <div class="user-menu-items">
+              <a href="{{ url_for('profile') }}" class="menu-item">Account</a>
+              <a href="{{ url_for('playlists_page') }}" class="menu-item">Library</a>
+              <form method="post" action="{{ url_for('logout') }}" class="menu-form">
+                <button type="submit" class="menu-item menu-item-button">Logout</button>
+              </form>
+            </div>
+          </details>
+        {% else %}
+          <a href="{{ url_for('login') }}" class="menu-item">Login</a>
+          <a href="{{ url_for('register') }}" class="menu-item">Register</a>
+        {% endif %}
+      </nav>
+    </header>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+    <div id="toast-root" class="toast-root" aria-live="polite" aria-atomic="true"></div>
+    {% if user %}
+      <dialog id="playlist-dialog" class="playlist-dialog">
+        <form method="dialog" class="stack">
+          <h3>Add to playlist</h3>
+          <label>Choose playlist
+            <select id="playlist-select"></select>
+          </label>
+          <label>Or create new playlist
+            <input id="new-playlist-name" type="text" placeholder="New playlist name" />
+          </label>
+          <div class="row">
+            <button id="playlist-dialog-submit" value="submit">Save</button>
+            <button value="cancel">Cancel</button>
+          </div>
+        </form>
+      </dialog>
+      <dialog id="remove-dialog" class="playlist-dialog">
+        <form method="dialog" class="stack">
+          <h3>Remove from playlist</h3>
+          <p class="muted">Remove this video from the current playlist?</p>
+          <div class="row">
+            <button id="remove-dialog-submit" value="submit" class="danger">Remove</button>
+            <button value="cancel">Cancel</button>
+          </div>
+        </form>
+      </dialog>
+    {% endif %}
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+  </html>

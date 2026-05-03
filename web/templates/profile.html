@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="split-layout white-surface">
+    <aside class="split-nav">
+      <a class="split-nav-item active" href="{{ url_for('profile') }}">Account</a>
+    </aside>
+    <div class="split-content">
+      <h1>Account</h1>
+      <p class="muted">Email: {{ user.email }}</p>
+      {% if error %}<p class="error">{{ error }}</p>{% endif %}
+      {% if success %}<p class="success">{{ success }}</p>{% endif %}
+
+      <div class="account-section">
+        <h2>Change username</h2>
+        <form method="post" class="stack">
+          <input type="hidden" name="action" value="update_username" />
+          <label>Username <input type="text" name="username" value="{{ user.username }}" required /></label>
+          <button type="submit">Update username</button>
+        </form>
+      </div>
+
+      <div class="account-section">
+        <h2>Change email</h2>
+        <form method="post" class="stack">
+          <input type="hidden" name="action" value="update_email" />
+          <label>Email <input type="email" name="email" value="{{ user.email }}" required /></label>
+          <button type="submit">Update email</button>
+        </form>
+      </div>
+
+      <div class="account-section">
+        <h2>Change password</h2>
+        <form method="post" class="stack">
+          <input type="hidden" name="action" value="update_password" />
+          <label>Current password <input type="password" name="current_password" required /></label>
+          <label>New password <input type="password" name="new_password" required /></label>
+          <button type="submit">Update password</button>
+        </form>
+      </div>
+
+      <div class="account-section">
+        <h2>Delete account</h2>
+        <p class="muted">This permanently deletes your account, playlists, likes, progress, and history.</p>
+        <form method="post" class="stack">
+          <input type="hidden" name="action" value="delete_account" />
+          <button type="submit" class="danger">Delete account</button>
+        </form>
+      </div>
+    </div>
+  </section>
+{% endblock %}
