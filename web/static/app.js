@@ -209,7 +209,6 @@ function setupVideoPlayer() {
 
   const likeButton = document.getElementById("like-toggle");
   if (likeButton) {
-    const likeLabel = likeButton.querySelector("span:last-child");
     likeButton.addEventListener("click", async () => {
       try {
         const result = await requestJSON(`/api/video/${encodeURIComponent(videoId)}/reaction`, {
@@ -220,10 +219,8 @@ function setupVideoPlayer() {
         if (like) like.textContent = String(result.likes ?? like.textContent);
         if (result.liked) {
           likeButton.classList.add("liked");
-          if (likeLabel) likeLabel.textContent = "Liked";
         } else {
           likeButton.classList.remove("liked");
-          if (likeLabel) likeLabel.textContent = "Like";
         }
       } catch (err) {
         alert(String(err.message || err));
