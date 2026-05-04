@@ -49,6 +49,7 @@ button {
   cursor: pointer;
 }
 button:hover { opacity: 0.95; }
+button:disabled { opacity: 0.45; cursor: default; }
 
 input, select {
   margin-top: 4px;

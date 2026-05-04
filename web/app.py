@@ -672,8 +672,19 @@ def api_playlist_reorder(playlist_id: str):
 # ---------------------------------------------------------------------------
 
 def _startup() -> None:
+    import logging
+    media_root_host = os.getenv("MEDIA_ROOT_HOST", "not set")
+    log = logging.getLogger("kino")
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    log.info("Starting up")
+    log.info("Media root: %s => %s", media_root_host, media_root)
+    stale_lock = db.get("scan_lock")
+    if stale_lock:
+        log.info("Clearing stale scan lock from previous run")
+        db.delete(stale_lock)
     db.ensure_indexes()
     run_phase3_migration()
+    log.info("Startup complete")
 
 
 with app.app_context():

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".m4v"}
 THUMBNAIL_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 DIRECTORY_THUMB_BASENAMES = ("cover", "folder", "thumbnail", "poster")
 VIDEO_THUMB_BASENAMES = ("thumbnail", "cover", "poster")

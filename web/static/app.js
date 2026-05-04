@@ -77,6 +77,16 @@ function setupScanButton() {
     const socket = io();
     socket.on("scan_started", () => {
       setScanLoading(true);
+      const loadingEl = document.getElementById("scan-loading");
+      if (loadingEl) loadingEl.textContent = "Scanning...";
+    });
+    socket.on("scan_progress", (payload = {}) => {
+      const loadingEl = document.getElementById("scan-loading");
+      if (!loadingEl) return;
+      if (typeof payload.processed === "number" && typeof payload.total === "number" && payload.total > 0) {
+        const pct = Math.round((payload.processed / payload.total) * 100);
+        loadingEl.textContent = `Scanning... ${pct}%`;
+      }
     });
     socket.on("scan_completed", (payload = {}) => {
       if (sawCompletion) return;
@@ -95,6 +105,14 @@ function setupScanButton() {
     .then((status) => {
       if (status.running) {
         setScanLoading(true);
+        const loadingEl = document.getElementById("scan-loading");
+        if (loadingEl && status.progress) {
+          const p = status.progress;
+          if (typeof p.processed === "number" && typeof p.total === "number" && p.total > 0) {
+            const pct = Math.round((p.processed / p.total) * 100);
+            loadingEl.textContent = `Scanning... ${pct}%`;
+          }
+        }
       }
     })
     .catch(() => {});

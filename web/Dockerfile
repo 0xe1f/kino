@@ -13,4 +13,4 @@ COPY . /app
 
 EXPOSE 5050
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5050", "--workers", "1", "--worker-class", "eventlet", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5050", "--workers", "1", "--worker-class", "eventlet", "--access-logfile", "-", "app:app"]

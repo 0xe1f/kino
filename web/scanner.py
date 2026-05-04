@@ -1,3 +1,4 @@
+import logging
 import os
 import threading
 import time
@@ -32,7 +33,9 @@ class ScannerManager:
             "last_started_at": None,
             "last_finished_at": None,
             "last_error": None,
+            "progress": None,
         }
+        self._log = logging.getLogger("kino.scanner")
 
     @property
     def status(self) -> dict[str, Any]:
@@ -44,6 +47,8 @@ class ScannerManager:
             self._status.update(kwargs)
 
     def _emit(self, event_name: str, payload: dict[str, Any]) -> None:
+        if event_name == "scan_progress":
+            self._update_status(progress=payload)
         self._socketio.emit(event_name, payload)
 
     def trigger(self) -> dict[str, Any]:
@@ -115,9 +120,10 @@ class ScannerManager:
                         "absolute_path": abs_file,
                         "title": Path(file_name).stem,
                         "description": "",
-                        "duration": parse_ffprobe_duration(abs_file),
+                        "duration": None,
                     }
                 )
+            self._emit("scan_progress", {"phase": "discovering", "current_dir": rel or "/"})
         return tree
 
     def _upsert_scanned_videos(self, tree: dict[str, Any]) -> set[str]:
@@ -133,6 +139,12 @@ class ScannerManager:
                 found_paths.add(rel_path)
                 video_id = f"video:{sha1_text(rel_path)}"
                 existing = db.get(video_id) or {}
+
+                self._log.info("[%d/%d] %s", processed + 1, total_videos, rel_path)
+
+                duration = video["duration"]
+                if duration is None:
+                    duration = parse_ffprobe_duration(video["absolute_path"])
 
                 manual_thumb = find_existing_video_thumbnail(rel_path)
                 thumbnail_kind = None
@@ -151,8 +163,9 @@ class ScannerManager:
                         thumbnail_kind = "static"
                         thumbnail_path = existing_static
                 if not thumbnail_path:
+                    self._log.info("  generating thumbnail for %s", rel_path)
                     generated = ensure_generated_video_thumbnail(
-                        rel_path, video["absolute_path"], video["duration"]
+                        rel_path, video["absolute_path"], duration
                     )
                     if generated:
                         thumbnail_kind = "static"
@@ -168,7 +181,7 @@ class ScannerManager:
                     "description": video["description"],
                     "thumbnail_kind": thumbnail_kind,
                     "thumbnail_path": thumbnail_path,
-                    "duration": video["duration"],
+                    "duration": duration,
                     "views": existing.get("views", 0),
                     "likes": existing.get("likes", 0),
                     "created_at": existing.get("created_at") or now,
@@ -334,10 +347,12 @@ class ScannerManager:
             )
 
     def _run(self) -> None:
+        self._log.info("Scan started")
         self._update_status(
             running=True,
             last_started_at=now_iso(),
             last_error=None,
+            progress=None,
         )
         self._emit("scan_started", {"started_at": self.status["last_started_at"]})
 
@@ -346,6 +361,7 @@ class ScannerManager:
                 last_error="Scan lock is already held by another worker",
                 running=False,
                 last_finished_at=now_iso(),
+                progress=None,
             )
             self._emit(
                 "scan_failed",
@@ -369,10 +385,11 @@ class ScannerManager:
             valid_video_ids = self._upsert_scanned_videos(tree)
             self._rebuild_system_playlists(tree, valid_video_ids)
         except Exception as exc:
+            self._log.exception("Scan failed: %s", exc)
             self._update_status(last_error=str(exc))
         finally:
             self._release_lock()
-            self._update_status(running=False, last_finished_at=now_iso())
+            self._update_status(running=False, last_finished_at=now_iso(), progress=None)
             if self.status["last_error"]:
                 self._emit(
                     "scan_failed",
@@ -382,6 +399,7 @@ class ScannerManager:
                     },
                 )
             else:
+                self._log.info("Scan completed at %s", self.status["last_finished_at"])
                 self._emit(
                     "scan_completed",
                     {"finished_at": self.status["last_finished_at"]},
