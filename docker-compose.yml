@@ -32,7 +32,7 @@ services:
       - generated_thumbs:/app/static/thumbs
 
   nginx:
-    image: nginx:alpine
+    build: ./nginx
     container_name: kino-nginx
     restart: unless-stopped
     depends_on:
@@ -40,7 +40,6 @@ services:
     ports:
       - "5050:80"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ${MEDIA_ROOT_HOST:-./media}:/media/library:ro
       - generated_thumbs:/thumbs:ro
 

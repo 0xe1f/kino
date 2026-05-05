@@ -255,21 +255,22 @@ function setupVideoRowActions() {
     if (!event.target.closest(".row-actions")) closeAllMenus();
   });
 
-  document.querySelectorAll(".row-menu-trigger").forEach((trigger) => {
-    trigger.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const rowActions = trigger.closest(".row-actions");
-      const menu = rowActions?.querySelector(".row-menu");
-      if (!menu) return;
-      const opening = menu.classList.contains("hidden");
-      closeAllMenus();
-      if (opening) menu.classList.remove("hidden");
-    });
+  document.addEventListener("click", (event) => {
+    const trigger = event.target.closest(".row-menu-trigger");
+    if (!trigger) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const menu = trigger.closest(".row-actions")?.querySelector(".row-menu");
+    if (!menu) return;
+    const opening = menu.classList.contains("hidden");
+    closeAllMenus();
+    if (opening) menu.classList.remove("hidden");
   });
 
-  document.querySelectorAll(".row-menu-item").forEach((button) => {
-    button.addEventListener("click", async (event) => {
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest(".row-menu-item");
+    if (!button) return;
+    {
       event.preventDefault();
       event.stopPropagation();
       const action = button.dataset.action;
@@ -325,7 +326,7 @@ function setupVideoRowActions() {
       } catch (err) {
         alert(String(err.message || err));
       }
-    });
+    }
   });
 
   if (removeSubmitButton && removeDialog) {
@@ -392,9 +393,55 @@ function setupLocalDates() {
   });
 }
 
+function setupLoadMore() {
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-load-more]");
+    if (!btn) return;
+    btn.disabled = true;
+    const url = btn.dataset.url;
+    const offset = parseInt(btn.dataset.offset, 10);
+    const originalText = btn.textContent;
+    btn.textContent = "Loading...";
+    try {
+      const data = await requestJSON(`${url}?offset=${offset}`);
+      const list = btn.closest("section").querySelector("ul.list");
+      list.insertAdjacentHTML("beforeend", data.html);
+      if (data.has_more) {
+        btn.dataset.offset = data.next_offset;
+        btn.disabled = false;
+        btn.textContent = `Show ${data.total - data.next_offset} more`;
+      } else {
+        btn.remove();
+      }
+    } catch (err) {
+      showToast(`Failed to load more: ${err.message}`);
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  });
+}
+
+function setupNavItems() {
+  const list = document.querySelector("ul[data-nav-playlist-id]");
+  if (!list) return;
+  const pid = list.dataset.navPlaylistId;
+  const vid = list.dataset.navCurrentVideoId;
+  fetch(`/api/playlist/${encodeURIComponent(pid)}/nav-items?current_video_id=${encodeURIComponent(vid)}`)
+    .then((r) => r.json())
+    .then((data) => {
+      list.innerHTML = data.html;
+      list.querySelector(".active-row")?.scrollIntoView({ block: "nearest" });
+    })
+    .catch(() => {
+      list.innerHTML = '<li class="nav-items-loading"><span class="muted">Failed to load.</span></li>';
+    });
+}
+
 setupScanButton();
 setupUserMenu();
 setupThemeToggle();
 setupVideoPlayer();
 setupVideoRowActions();
 setupLocalDates();
+setupLoadMore();
+setupNavItems();

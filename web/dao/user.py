@@ -56,26 +56,16 @@ class UserDAO:
 
     def username_taken(self, username: str, exclude_user_id: str | None = None) -> bool:
         normalized = normalize_username(username).lower()
-        for user in self.list_all():
-            existing = normalize_username(user.get("username", "")).lower()
-            if not existing or existing != normalized:
-                continue
-            if exclude_user_id and user.get("user_id") == exclude_user_id:
-                continue
-            return True
-        return False
+        result = self._db.find_one("user", username=normalized)
+        if not result:
+            return False
+        return result.get("user_id") != exclude_user_id
 
     def hard_delete(self, user: dict[str, Any]) -> None:
         user_id = user["user_id"]
 
         for playlist in self._db.find_many("playlist", owner_type="user", owner_id=user_id):
             self._delete_playlist_tree(user_id, playlist["_id"])
-
-        for item in self._db.find_many("playlist_item", owner_type="user"):
-            if item.get("playlist_id", "").startswith("playlist:"):
-                maybe_playlist = self._db.get(item.get("playlist_id"))
-                if maybe_playlist and maybe_playlist.get("owner_id") == user_id:
-                    self._db.delete(item)
 
         for doc in self._db.find_many("playback_history", user_id=user_id):
             self._db.delete(doc)

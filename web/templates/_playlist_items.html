@@ -1,0 +1,22 @@
+{% for pair in items %}
+  {% set item = pair.item %}
+  {% set target = pair.target %}
+  {% if item.item_type == "playlist" %}
+    <li>
+      <a class="row-link" href="{{ url_for('playlist_view', playlist_id=target._id) }}">
+        {% set target_thumb = thumbnail_url(target) %}
+        {% if target_thumb %}
+          <img src="{{ target_thumb }}" alt="{{ target.name or target.title }} thumbnail" class="thumb thumb-sm" />
+        {% endif %}
+        <span>📁 {{ target.name }}</span>
+      </a>
+    </li>
+  {% else %}
+    {% set video = target %}
+    {% set video_link = url_for('video_view', video_id=target._id, playlist_id=playlist_id) %}
+    {% set row_prefix = "▶" %}
+    {% set row_meta = None %}
+    {% set active_row = False %}
+    {% include "_video_row.html" %}
+  {% endif %}
+{% endfor %}

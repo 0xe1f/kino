@@ -12,17 +12,17 @@
         <h1>Playback History</h1>
         {% if history_rows %}
           <ul class="list">
-            {% for row in history_rows %}
-              {% set video = row.video %}
-              {% set video_link = url_for('video_view', video_id=video._id, playlist_id=row.history.playlist_id) %}
-              {% set row_prefix = None %}
-              {% set row_meta = "Watched " ~ row.history.watched_at %}
-              {% set active_row = False %}
-              {% set context_playlist_id = row.context_playlist_id %}
-              {% set context_playlist_removable = row.context_playlist_removable %}
-              {% include "_video_row.html" %}
-            {% endfor %}
+            {% include "_history_items.html" %}
           </ul>
+          {% if has_more %}
+            <button class="load-more-btn"
+                    data-load-more
+                    data-url="{{ url_for('api_history_items') }}"
+                    data-offset="{{ next_offset }}"
+                    data-total="{{ total }}">
+              Show {{ total - next_offset }} more
+            </button>
+          {% endif %}
         {% else %}
           <p class="muted">No playback history yet.</p>
         {% endif %}
@@ -30,26 +30,35 @@
         <h1>Your Playlists</h1>
         {% if playlists %}
           <ul class="list">
-            {% for playlist in playlists %}
-              <li><a class="row-link" href="{{ url_for('playlist_view', playlist_id=playlist._id) }}">{{ playlist.name }}</a></li>
-            {% endfor %}
+            {% include "_custom_playlists.html" %}
           </ul>
+          {% if has_more %}
+            <button class="load-more-btn"
+                    data-load-more
+                    data-url="{{ url_for('api_library_playlists_items') }}"
+                    data-offset="{{ next_offset }}"
+                    data-total="{{ total }}">
+              Show {{ total - next_offset }} more
+            </button>
+          {% endif %}
         {% else %}
           <p class="muted">No custom playlists yet.</p>
         {% endif %}
       {% else %}
         <h1>{{ playlist.name }}</h1>
-        {% if items %}
+        {% if items or has_more %}
           <ul class="list">
-            {% for pair in items %}
-              {% set video = pair.target %}
-              {% set video_link = url_for('video_view', video_id=video._id, playlist_id=playlist._id) %}
-              {% set row_prefix = None %}
-              {% set row_meta = None %}
-              {% set active_row = False %}
-              {% include "_video_row.html" %}
-            {% endfor %}
+            {% include "_playlist_items.html" %}
           </ul>
+          {% if has_more %}
+            <button class="load-more-btn"
+                    data-load-more
+                    data-url="{{ url_for('api_playlist_items', playlist_id=playlist._id) }}"
+                    data-offset="{{ next_offset }}"
+                    data-total="{{ total }}">
+              Show {{ total - next_offset }} more
+            </button>
+          {% endif %}
         {% else %}
           <p class="muted">Nothing here yet.</p>
         {% endif %}

@@ -14,6 +14,9 @@ class VideoDAO:
     def list_all(self) -> list[dict[str, Any]]:
         return self._db.find_many("video")
 
+    def exists_any(self) -> bool:
+        return self._db.find_one("video") is not None
+
     def list_by_source(self, source: str) -> list[dict[str, Any]]:
         return self._db.find_many("video", source=source)
 

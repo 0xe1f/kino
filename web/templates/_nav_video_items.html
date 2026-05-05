@@ -1,0 +1,9 @@
+{% for pair in items %}
+  {% set target = pair.target %}
+  {% set video = target %}
+  {% set video_link = url_for('video_view', video_id=target._id, playlist_id=playlist_id) %}
+  {% set active_row = target._id == current_video_id %}
+  {% set row_prefix = "▶" if active_row else pair.position_label %}
+  {% set row_meta = None %}
+  {% include "_video_row.html" %}
+{% endfor %}

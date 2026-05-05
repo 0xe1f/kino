@@ -473,7 +473,21 @@ a.menu-item {
   width: 420px;
 }
 
+.nav-items-scroll {
+  max-height: 568px; /* ~8 rows */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.nav-items-loading {
+  padding: 12px 0;
+}
+
 @media (max-width: 900px) {
+  .nav-items-scroll {
+    max-height: none;
+    overflow-y: visible;
+  }
   .watch-layout {
     grid-template-columns: 1fr;
   }
@@ -486,4 +500,26 @@ a.menu-item {
     grid-auto-flow: column;
     overflow-x: auto;
   }
+}
+
+.load-more-btn {
+  display: block;
+  margin: 0.75rem auto 0;
+  padding: 0.5rem 1.25rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.load-more-btn:hover:not(:disabled) {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+
+.load-more-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

@@ -47,6 +47,31 @@ class KinoDB:
 
     # --- Mango query helpers ---
 
+    def get_many(self, ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Fetch multiple documents by ID in a single request. Returns {id: doc}."""
+        if not ids:
+            return {}
+        url = f"{self.url.rstrip('/')}/{self.db_name}/_all_docs?include_docs=true"
+        resp = _http.post(url, json={"keys": ids}, timeout=30)
+        resp.raise_for_status()
+        result: dict[str, dict[str, Any]] = {}
+        for row in resp.json().get("rows", []):
+            doc = row.get("doc")
+            if doc and not row.get("error"):
+                result[row["id"]] = doc
+        return result
+
+    def bulk_save(self, docs: list[dict[str, Any]]) -> None:
+        """Save multiple documents in a single request."""
+        if not docs:
+            return
+        url = f"{self.url.rstrip('/')}/{self.db_name}/_bulk_docs"
+        resp = _http.post(url, json={"docs": docs}, timeout=30)
+        resp.raise_for_status()
+        for result, doc in zip(resp.json(), docs):
+            if result.get("rev"):
+                doc["_rev"] = result["rev"]
+
     def find_by_mango(
         self,
         selector: dict[str, Any],
@@ -73,11 +98,15 @@ class KinoDB:
             ["type", "user_id"],
             ["type", "owner_id"],
             ["type", "owner_type"],
+            ["type", "owner_type", "owner_id"],
             ["type", "playlist_id"],
+            ["type", "playlist_id", "position"],
             ["type", "email"],
             ["type", "video_id"],
             ["type", "source"],
             ["type", "builtin_kind"],
+            ["type", "parent_playlist_id"],
+            ["type", "username"],
         ]
         for fields in index_groups:
             try:

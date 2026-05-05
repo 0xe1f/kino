@@ -28,6 +28,8 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret-change-me")
 socketio = SocketIO(app, cors_allowed_origins="*")
 scanner_manager = ScannerManager(socketio)
 
+PAGE_SIZE = 40
+
 
 # ---------------------------------------------------------------------------
 # Request lifecycle
@@ -84,7 +86,7 @@ def inject_template_globals():
 def index():
     user = g.get("user")
     top_playlists = playlists.top_level(user)
-    has_videos = len(videos.list_all()) > 0
+    has_videos = videos.exists_any()
     return render_template("index.html", user=user, playlists=top_playlists, has_videos=has_videos)
 
 
@@ -212,29 +214,45 @@ def profile():
 
 
 def _render_library_section(user: dict[str, Any], section: str):
-    builtin_states = playlists.builtin_states_for_user(user)
     if section == "history":
+        history_rows, total = playback.list_history_page(user, playlists, 0, PAGE_SIZE)
         content = {
-            "history_rows": playback.list_history_for_user(user, playlists),
-            "builtin_states": builtin_states,
+            "history_rows": history_rows,
+            "total": total,
+            "has_more": PAGE_SIZE < total,
+            "next_offset": PAGE_SIZE,
         }
     elif section == "playlists":
-        content = {"playlists": playlists.list_custom_for_user(user)}
+        page_playlists, total = playlists.list_custom_for_user_page(user, 0, PAGE_SIZE)
+        content = {
+            "playlists": page_playlists,
+            "total": total,
+            "has_more": PAGE_SIZE < total,
+            "next_offset": PAGE_SIZE,
+        }
     elif section == "favorites":
         favorites = playlists.ensure_builtin(user, "favorites")
+        items, total = playlists.items_page(favorites["_id"], 0, PAGE_SIZE)
         content = {
             "playlist": favorites,
-            "items": playlists.items(favorites["_id"]),
-            "builtin_states": builtin_states,
+            "playlist_id": favorites["_id"],
+            "items": items,
+            "total": total,
+            "has_more": PAGE_SIZE < total,
+            "next_offset": PAGE_SIZE,
             "context_playlist_id": favorites["_id"],
             "context_playlist_removable": False,
         }
     elif section == "watch_later":
         watch_later = playlists.ensure_builtin(user, "watch_later")
+        items, total = playlists.items_page(watch_later["_id"], 0, PAGE_SIZE)
         content = {
             "playlist": watch_later,
-            "items": playlists.items(watch_later["_id"]),
-            "builtin_states": builtin_states,
+            "playlist_id": watch_later["_id"],
+            "items": items,
+            "total": total,
+            "has_more": PAGE_SIZE < total,
+            "next_offset": PAGE_SIZE,
             "context_playlist_id": watch_later["_id"],
             "context_playlist_removable": False,
         }
@@ -274,20 +292,21 @@ def playlist_view(playlist_id: str):
     playlist = playlists.get(pid)
     if not playlist:
         return "Playlist not found", 404
-    if playlist.get("owner_type") == "user" and (
-        not user or playlist.get("owner_id") != user.get("user_id")
-    ):
-        return "Unauthorized", 403
-    items = playlists.items(pid)
+    context_playlist_removable = playlists.removable_for_user(user, pid)
+    items, total = playlists.items_page(pid, 0, PAGE_SIZE)
+    next_offset = PAGE_SIZE
     return render_template(
         "playlist.html",
         user=user,
         playlist=playlist,
+        playlist_id=pid,
         items=items,
+        total=total,
+        has_more=next_offset < total,
+        next_offset=next_offset,
         playlist_owner=playlists.owner_username(playlist),
-        builtin_states=playlists.builtin_states_for_user(user),
         context_playlist_id=pid,
-        context_playlist_removable=playlists.removable_for_user(user, pid),
+        context_playlist_removable=context_playlist_removable,
     )
 
 
@@ -304,8 +323,6 @@ def video_view(video_id: str):
     is_liked = False
     playlist = None
     playlist_nav = None
-    builtin_states = playlists.builtin_states_for_user(user)
-
     if user:
         progress = playback.get_progress(user["user_id"], vid)
         if progress:
@@ -316,23 +333,9 @@ def video_view(video_id: str):
     if playlist_id:
         playlist = playlists.get(playlist_id)
         if playlist:
-            list_items = playlists.items(playlist["_id"])
-            video_items = [p for p in list_items if p["item"].get("item_type") == "video"]
-            ids = [p["target"]["_id"] for p in video_items]
-            if vid in ids:
-                index = ids.index(vid)
-                total_duration = sum(
-                    float(p["target"].get("duration", 0) or 0) for p in video_items
-                )
-                playlist_nav = {
-                    "items": video_items,
-                    "count": len(video_items),
-                    "total_duration": total_duration,
-                    "current_index": index,
-                    "previous_video_id": ids[index - 1] if index > 0 else None,
-                    "next_video_id": ids[index + 1] if index < len(ids) - 1 else None,
-                    "auto_advance": True,
-                }
+            nav = playlists.nav_metadata(playlist["_id"], vid)
+            if nav["count"] > 0:
+                playlist_nav = {**nav, "auto_advance": True}
 
     return render_template(
         "video.html",
@@ -343,11 +346,8 @@ def video_view(video_id: str):
         is_liked=is_liked,
         playlist=playlist,
         playlist_nav=playlist_nav,
-        builtin_states=builtin_states,
         context_playlist_id=playlist["_id"] if playlist else None,
-        context_playlist_removable=playlists.removable_for_user(
-            user, playlist["_id"] if playlist else None
-        ),
+        context_playlist_removable=playlists.removable_doc_for_user(user, playlist),
     )
 
 
@@ -365,6 +365,72 @@ def media_file(relative_path: str):
     resp.cache_control.max_age = 3600
     resp.cache_control.public = True
     return resp
+
+
+# ---------------------------------------------------------------------------
+# API — pagination fragments
+# ---------------------------------------------------------------------------
+
+@app.route("/api/playlist/<path:playlist_id>/items")
+def api_playlist_items(playlist_id: str):
+    pid = normalize_playlist_id(playlist_id)
+    playlist = playlists.get(pid)
+    if not playlist:
+        return jsonify({"error": "not found"}), 404
+    user = g.get("user")
+    offset = request.args.get("offset", 0, type=int)
+    items, total = playlists.items_page(pid, offset, PAGE_SIZE)
+    next_offset = offset + PAGE_SIZE
+    html = render_template(
+        "_playlist_items.html",
+        items=items,
+        playlist_id=pid,
+        user=user,
+        context_playlist_id=pid,
+        context_playlist_removable=playlists.removable_doc_for_user(user, playlist),
+    )
+    return jsonify({"html": html, "has_more": next_offset < total, "next_offset": next_offset, "total": total})
+
+
+@app.route("/api/playlist/<path:playlist_id>/nav-items")
+def api_playlist_nav_items(playlist_id: str):
+    pid = normalize_playlist_id(playlist_id)
+    playlist = playlists.get(pid)
+    if not playlist:
+        return jsonify({"error": "not found"}), 404
+    user = g.get("user")
+    current_video_id = normalize_video_id(request.args.get("current_video_id", ""))
+    items = playlists.video_items_all(pid)
+    html = render_template(
+        "_nav_video_items.html",
+        items=items,
+        playlist_id=pid,
+        user=user,
+        current_video_id=current_video_id,
+        context_playlist_id=pid,
+        context_playlist_removable=playlists.removable_doc_for_user(user, playlist),
+    )
+    return jsonify({"html": html})
+
+
+@app.route("/api/library/history/items")
+@login_required
+def api_history_items():
+    offset = request.args.get("offset", 0, type=int)
+    rows, total = playback.list_history_page(g.user, playlists, offset, PAGE_SIZE)
+    next_offset = offset + PAGE_SIZE
+    html = render_template("_history_items.html", history_rows=rows, user=g.user)
+    return jsonify({"html": html, "has_more": next_offset < total, "next_offset": next_offset, "total": total})
+
+
+@app.route("/api/library/playlists/items")
+@login_required
+def api_library_playlists_items():
+    offset = request.args.get("offset", 0, type=int)
+    page_playlists, total = playlists.list_custom_for_user_page(g.user, offset, PAGE_SIZE)
+    next_offset = offset + PAGE_SIZE
+    html = render_template("_custom_playlists.html", playlists=page_playlists)
+    return jsonify({"html": html, "has_more": next_offset < total, "next_offset": next_offset, "total": total})
 
 
 # ---------------------------------------------------------------------------

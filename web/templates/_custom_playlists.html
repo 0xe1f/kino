@@ -1,0 +1,3 @@
+{% for playlist in playlists %}
+  <li><a class="row-link" href="{{ url_for('playlist_view', playlist_id=playlist._id) }}">{{ playlist.name }}</a></li>
+{% endfor %}

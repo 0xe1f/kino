@@ -50,12 +50,8 @@
 
     {% if playlist_nav %}
       <aside class="watch-sidebar panel">
-        {% set current_video_id = video._id %}
         <h3>{{ playlist.name }}</h3>
-        <p class="muted">
-          {{ playlist_nav.count }} videos |
-          {{ format_duration(playlist_nav.total_duration) }}
-        </p>
+        <p class="muted">{{ playlist_nav.count }} videos</p>
         <div class="row">
           {% if playlist_nav.previous_video_id %}
             <a class="menu-item" href="{{ url_for('video_view', video_id=playlist_nav.previous_video_id, playlist_id=playlist._id) }}">Previous</a>
@@ -69,16 +65,10 @@
           {% endif %}
           <span class="tag">Auto-advance on</span>
         </div>
-        <ul class="list">
-          {% for pair in playlist_nav["items"] %}
-            {% set target = pair.target %}
-            {% set video = target %}
-            {% set video_link = url_for('video_view', video_id=target._id, playlist_id=playlist._id) %}
-            {% set row_prefix = loop.index if target._id != current_video_id else "▶" %}
-            {% set row_meta = None %}
-            {% set active_row = target._id == current_video_id %}
-            {% include "_video_row.html" %}
-          {% endfor %}
+        <ul class="list nav-items-scroll"
+            data-nav-playlist-id="{{ playlist._id }}"
+            data-nav-current-video-id="{{ video._id }}">
+          <li class="nav-items-loading"><span class="muted">Loading…</span></li>
         </ul>
       </aside>
     {% endif %}

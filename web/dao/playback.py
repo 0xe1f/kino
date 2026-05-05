@@ -46,15 +46,48 @@ class PlaybackDAO:
         doc["watched_at"] = now_iso()
         self._db.save(doc)
 
+    def list_history_page(
+        self,
+        user: dict[str, Any],
+        playlist_dao: Any,
+        offset: int,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        history_docs = self._db.find_many("playback_history", user_id=user["user_id"])
+        history_docs.sort(key=lambda d: d.get("watched_at", ""), reverse=True)
+        total = len(history_docs)
+        page_docs = history_docs[offset : offset + limit]
+        video_ids = [d["video_id"] for d in page_docs if d.get("video_id")]
+        videos_map = self._db.get_many(video_ids)
+        rows = []
+        for doc in page_docs:
+            video = videos_map.get(doc.get("video_id"))
+            if not video:
+                continue
+            context_playlist_id = doc.get("playlist_id")
+            rows.append(
+                {
+                    "history": doc,
+                    "video": video,
+                    "context_playlist_id": context_playlist_id,
+                    "context_playlist_removable": playlist_dao.removable_for_user(
+                        user, context_playlist_id
+                    ),
+                }
+            )
+        return rows, total
+
     def list_history_for_user(
         self,
         user: dict[str, Any],
         playlist_dao: Any,
     ) -> list[dict[str, Any]]:
         history_docs = self._db.find_many("playback_history", user_id=user["user_id"])
+        video_ids = [d["video_id"] for d in history_docs if d.get("video_id")]
+        videos_map = self._db.get_many(video_ids)
         rows = []
         for doc in history_docs:
-            video = self._db.get(doc.get("video_id"))
+            video = videos_map.get(doc.get("video_id"))
             if not video:
                 continue
             context_playlist_id = doc.get("playlist_id")

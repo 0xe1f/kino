@@ -5,6 +5,7 @@ from db import KinoDB
 from utils import BUILTIN_PLAYLISTS, now_iso
 
 
+
 class PlaylistDAO:
     def __init__(self, database: KinoDB) -> None:
         self._db = database
@@ -39,6 +40,19 @@ class PlaylistDAO:
             return False
         return playlist.get("owner_id") == user.get("user_id")
 
+    def removable_doc_for_user(
+        self,
+        user: dict[str, Any] | None,
+        playlist: dict[str, Any] | None,
+    ) -> bool:
+        if not user or not playlist:
+            return False
+        if playlist.get("owner_type") != "user":
+            return False
+        if self.is_builtin(playlist):
+            return False
+        return playlist.get("owner_id") == user.get("user_id")
+
     def removable_for_user(
         self,
         user: dict[str, Any] | None,
@@ -47,11 +61,7 @@ class PlaylistDAO:
         if not user or not playlist_id:
             return False
         playlist = self._db.get(playlist_id)
-        if not playlist or playlist.get("owner_type") != "user":
-            return False
-        if self.is_builtin(playlist):
-            return False
-        return playlist.get("owner_id") == user.get("user_id")
+        return self.removable_doc_for_user(user, playlist)
 
     def ensure_builtin(
         self,
@@ -104,28 +114,19 @@ class PlaylistDAO:
                     states[kind].add(item.get("item_id"))
         return states
 
-    def visible_for_user(self, user: dict[str, Any] | None) -> list[dict[str, Any]]:
-        output = []
-        for playlist in self.list_all():
-            if playlist.get("hidden_from_lists"):
-                continue
-            owner_type = playlist.get("owner_type")
-            if owner_type == "system":
-                output.append(playlist)
-                continue
-            if (
-                user
-                and owner_type == "user"
-                and playlist.get("owner_id") == user["user_id"]
-            ):
-                output.append(playlist)
-        return output
-
     def top_level(self, user: dict[str, Any] | None) -> list[dict[str, Any]]:
-        playlists = self.visible_for_user(user)
-        top = [p for p in playlists if not p.get("parent_playlist_id")]
+        system = [
+            p for p in self._db.find_many("playlist", owner_type="system")
+            if not p.get("parent_playlist_id") and not p.get("hidden_from_lists")
+        ]
+        user_top: list[dict[str, Any]] = []
+        if user:
+            user_top = [
+                p for p in self._db.find_many("playlist", owner_type="user", owner_id=user["user_id"])
+                if not p.get("parent_playlist_id") and not p.get("hidden_from_lists")
+            ]
         return sorted(
-            top,
+            system + user_top,
             key=lambda p: (p.get("owner_type") != "system", p.get("name", "").lower()),
         )
 
@@ -140,14 +141,81 @@ class PlaylistDAO:
             return None
         return user_doc.get("username")
 
+    def items_page(
+        self, playlist_id: str, offset: int, limit: int
+    ) -> tuple[list[dict[str, Any]], int]:
+        raw_items = sorted(
+            self._db.find_many("playlist_item", playlist_id=playlist_id),
+            key=lambda item: item.get("position", 0),
+        )
+        total = len(raw_items)
+        page_items = raw_items[offset : offset + limit]
+        target_ids = [item["item_id"] for item in page_items if item.get("item_id")]
+        targets = self._db.get_many(target_ids)
+        collected = []
+        for item in page_items:
+            target = targets.get(item.get("item_id"))
+            if target:
+                collected.append({"item": item, "target": target})
+        return collected, total
+
+    def nav_metadata(
+        self, playlist_id: str, current_video_id: str
+    ) -> dict[str, Any]:
+        """Return lightweight nav info (count, prev/next IDs) with no video doc fetches."""
+        raw_items = sorted(
+            self._db.find_many("playlist_item", playlist_id=playlist_id),
+            key=lambda item: item.get("position", 0),
+        )
+        video_items = [it for it in raw_items if it.get("item_type") == "video"]
+        ids = [it["item_id"] for it in video_items]
+        total = len(ids)
+
+        try:
+            current_idx = ids.index(current_video_id)
+        except ValueError:
+            current_idx = 0
+
+        return {
+            "count": total,
+            "current_index": current_idx,
+            "previous_video_id": ids[current_idx - 1] if current_idx > 0 else None,
+            "next_video_id": ids[current_idx + 1] if current_idx < total - 1 else None,
+        }
+
+    def video_items_all(self, playlist_id: str) -> list[dict[str, Any]]:
+        """Return all video items in a playlist, hydrated, in position order."""
+        raw_items = sorted(
+            self._db.find_many("playlist_item", playlist_id=playlist_id),
+            key=lambda item: item.get("position", 0),
+        )
+        video_items = [it for it in raw_items if it.get("item_type") == "video"]
+        target_ids = [it["item_id"] for it in video_items if it.get("item_id")]
+        targets = self._db.get_many(target_ids)
+        collected = []
+        for i, item in enumerate(video_items):
+            target = targets.get(item.get("item_id"))
+            if target:
+                collected.append({"item": item, "target": target, "position_label": i + 1})
+        return collected
+
+    def list_custom_for_user_page(
+        self, user: dict[str, Any], offset: int, limit: int
+    ) -> tuple[list[dict[str, Any]], int]:
+        all_playlists = self.list_custom_for_user(user)
+        total = len(all_playlists)
+        return all_playlists[offset : offset + limit], total
+
     def items(self, playlist_id: str) -> list[dict[str, Any]]:
         raw_items = sorted(
             self._db.find_many("playlist_item", playlist_id=playlist_id),
             key=lambda item: item.get("position", 0),
         )
+        target_ids = [item["item_id"] for item in raw_items if item.get("item_id")]
+        targets = self._db.get_many(target_ids)
         collected = []
         for item in raw_items:
-            target = self._db.get(item.get("item_id"))
+            target = targets.get(item.get("item_id"))
             if not target:
                 continue
             collected.append({"item": item, "target": target})
@@ -236,9 +304,12 @@ class PlaylistItemDAO:
         self._db.delete(item)
 
     def reorder(self, playlist_id: str, ordered_item_ids: list[str]) -> None:
+        items_map = self._db.get_many(ordered_item_ids)
+        to_save = []
         for index, item_id in enumerate(ordered_item_ids):
-            item = self._db.get(item_id)
+            item = items_map.get(item_id)
             if not item or item.get("playlist_id") != playlist_id:
                 continue
             item["position"] = index
-            self._db.save(item)
+            to_save.append(item)
+        self._db.bulk_save(to_save)

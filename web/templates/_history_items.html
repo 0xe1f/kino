@@ -1,0 +1,10 @@
+{% for row in history_rows %}
+  {% set video = row.video %}
+  {% set video_link = url_for('video_view', video_id=video._id, playlist_id=row.history.playlist_id) %}
+  {% set row_prefix = None %}
+  {% set row_meta = "Watched " ~ row.history.watched_at %}
+  {% set active_row = False %}
+  {% set context_playlist_id = row.context_playlist_id %}
+  {% set context_playlist_removable = row.context_playlist_removable %}
+  {% include "_video_row.html" %}
+{% endfor %}
