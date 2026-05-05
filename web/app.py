@@ -351,9 +351,20 @@ def video_view(video_id: str):
     )
 
 
+@app.route("/static/thumbs/<path:filename>")
+def generated_thumb(filename: str):
+    resp = send_from_directory("static/thumbs", filename)
+    resp.cache_control.max_age = 365 * 24 * 3600
+    resp.cache_control.public = True
+    return resp
+
+
 @app.route("/media/<path:relative_path>")
 def media_file(relative_path: str):
-    return send_from_directory(media_root, relative_path)
+    resp = send_from_directory(media_root, relative_path)
+    resp.cache_control.max_age = 3600
+    resp.cache_control.public = True
+    return resp
 
 
 # ---------------------------------------------------------------------------

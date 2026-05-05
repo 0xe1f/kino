@@ -27,11 +27,22 @@ services:
       SCAN_LOCK_TTL_SECONDS: "600"
       KINO_LEGACY_USERNAME_BASE: ${KINO_LEGACY_USERNAME_BASE:-}
       MEDIA_ROOT_HOST: ${MEDIA_ROOT_HOST:-./media}
-    ports:
-      - "5050:5050"
     volumes:
       - ${MEDIA_ROOT_HOST:-./media}:/media/library:ro
-      - generated_thumbs:/app/static/generated-thumbs
+      - generated_thumbs:/app/static/thumbs
+
+  nginx:
+    image: nginx:alpine
+    container_name: kino-nginx
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "5050:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${MEDIA_ROOT_HOST:-./media}:/media/library:ro
+      - generated_thumbs:/thumbs:ro
 
 volumes:
   couchdb_data:

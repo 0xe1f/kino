@@ -18,7 +18,7 @@ BUILTIN_PLAYLISTS = {
 
 media_root: str = os.getenv("MEDIA_ROOT", "/media/library")
 scan_lock_ttl: int = int(os.getenv("SCAN_LOCK_TTL_SECONDS", "600"))
-generated_thumb_dir: Path = Path(os.getenv("STATIC_DIR", "./static")) / "generated-thumbs"
+generated_thumb_dir: Path = Path(os.getenv("STATIC_DIR", "./static")) / "thumbs"
 
 
 def now_iso() -> str:
@@ -132,7 +132,7 @@ def ensure_generated_video_thumbnail(
     output_name = f"{sha1_text(relative_video_path)}.jpg"
     output_file = generated_thumb_dir / output_name
     if output_file.exists():
-        return f"generated-thumbs/{output_name}"
+        return f"thumbs/{output_name}"
 
     seek_seconds = choose_thumbnail_seek_seconds(duration_seconds)
     cmd = [
@@ -147,7 +147,7 @@ def ensure_generated_video_thumbnail(
     try:
         subprocess.run(cmd, check=True, timeout=20)
         if output_file.exists():
-            return f"generated-thumbs/{output_name}"
+            return f"thumbs/{output_name}"
     except Exception:
         return None
     return None
