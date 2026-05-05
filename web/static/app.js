@@ -147,22 +147,33 @@ function setupThemeToggle() {
 
 function setupVideoPlayer() {
   const player = document.getElementById("video-player");
-  if (!player) return;
+  if (!player) return null;
 
   const videoId = player.dataset.videoId;
   const playlistId = player.dataset.playlistId || null;
   const resumePosition = Number(player.dataset.resumePosition || 0);
+
+  // Seek to resume position as soon as metadata is available (readyState >= 1).
+  // This must happen before canplay so the seek is already applied when we play.
   if (resumePosition > 0) {
-    player.currentTime = resumePosition;
-  }
-  const tryAutoplay = () => {
-    const maybePromise = player.play();
-    if (maybePromise && typeof maybePromise.catch === "function") {
-      maybePromise.catch(() => {});
+    if (player.readyState >= 1) {
+      player.currentTime = resumePosition;
+    } else {
+      player.addEventListener("loadedmetadata", () => {
+        player.currentTime = resumePosition;
+      }, { once: true });
     }
-  };
-  if (player.readyState >= 2) tryAutoplay();
-  else player.addEventListener("loadeddata", tryAutoplay, { once: true });
+  }
+
+  // Play once the browser has buffered enough data to begin (canplay / readyState >= 3).
+  // For AJAX switches, switchVideo already called play() within the click handler's
+  // activation window; this fires again when data arrives and is a no-op if already playing.
+  const onCanPlay = () => { player.play().catch(() => {}); };
+  if (player.readyState >= 3) {
+    onCanPlay();
+  } else {
+    player.addEventListener("canplay", onCanPlay, { once: true });
+  }
 
   requestJSON(`/api/video/${encodeURIComponent(videoId)}/play`, {
     method: "POST",
@@ -194,12 +205,25 @@ function setupVideoPlayer() {
     }, 10000);
   }
 
-  window.addEventListener("beforeunload", () => {
+  const onBeforeUnload = () => {
     if (heartbeat) clearInterval(heartbeat);
     if (shouldTrackProgress && !player.paused) {
       sendProgress().catch(() => {});
     }
-  });
+  };
+  window.addEventListener("beforeunload", onBeforeUnload);
+
+  const onEnded = () => {
+    const nextLink = document.querySelector("a[data-nav-next]");
+    if (!nextLink) return;
+    const url = new URL(nextLink.href, window.location.href);
+    const pathMatch = url.pathname.match(/^\/video\/(.+)$/);
+    if (!pathMatch) return;
+    const nextVideoId = decodeURIComponent(pathMatch[1]);
+    const nextPlaylistId = url.searchParams.get("playlist_id") || null;
+    switchVideo(nextVideoId, nextPlaylistId);
+  };
+  player.addEventListener("ended", onEnded);
 
   const likeButton = document.getElementById("like-toggle");
   if (likeButton) {
@@ -221,6 +245,175 @@ function setupVideoPlayer() {
       }
     });
   }
+
+  return function teardown() {
+    if (heartbeat) clearInterval(heartbeat);
+    window.removeEventListener("beforeunload", onBeforeUnload);
+    player.removeEventListener("canplay", onCanPlay);
+    player.removeEventListener("ended", onEnded);
+    if (shouldTrackProgress && !player.paused) {
+      sendProgress().catch(() => {});
+    }
+  };
+}
+
+let activeTeardown = null;
+
+async function switchVideo(videoId, playlistId) {
+  if (activeTeardown) {
+    activeTeardown();
+    activeTeardown = null;
+  }
+
+  const params = new URLSearchParams({ playlist_id: playlistId || "" });
+  let data;
+  try {
+    data = await requestJSON(`/api/video/${encodeURIComponent(videoId)}/watch-data?${params}`);
+  } catch (err) {
+    showToast(`Failed to load video: ${err.message || err}`);
+    return;
+  }
+
+  const player = document.getElementById("video-player");
+  if (!player) return;
+
+  player.dataset.videoId = data.video_id;
+  player.dataset.playlistId = playlistId || "";
+  player.dataset.resumePosition = data.resume_position || 0;
+  player.poster = data.poster || "";
+  player.src = data.src;
+  // Kick off play() synchronously here so it runs before any further async
+  // work; this keeps us within the browser's user-activation window.
+  player.play().catch(() => {});
+
+  const titleEl = document.querySelector(".video-title");
+  if (titleEl) titleEl.textContent = data.title || "";
+
+  const viewEl = document.getElementById("view-count");
+  if (viewEl) viewEl.textContent = String(data.views ?? 0);
+
+  const likeCountEl = document.getElementById("like-count");
+  if (likeCountEl) likeCountEl.textContent = String(data.likes ?? 0);
+
+  const likeToggle = document.getElementById("like-toggle");
+  if (likeToggle) likeToggle.classList.toggle("liked", !!data.is_liked);
+
+  const addedTimeEl = document.querySelector(".added-time time.local-date");
+  if (addedTimeEl && data.created_at) {
+    addedTimeEl.setAttribute("datetime", data.created_at);
+    const date = new Date(data.created_at);
+    if (!isNaN(date)) {
+      addedTimeEl.textContent = date.toLocaleDateString(undefined, {
+        year: "numeric", month: "long", day: "numeric",
+      });
+    }
+  }
+
+  const descEl = document.getElementById("video-description");
+  if (descEl) descEl.textContent = data.description || "";
+
+  _updateNavControls(data.playlist_nav, playlistId);
+  _updateSidebarActiveRow(videoId);
+
+  const newUrl = playlistId
+    ? `/video/${encodeURIComponent(videoId)}?playlist_id=${encodeURIComponent(playlistId)}`
+    : `/video/${encodeURIComponent(videoId)}`;
+  history.pushState({ videoId, playlistId: playlistId || null }, "", newUrl);
+
+  activeTeardown = setupVideoPlayer();
+}
+
+function _updateNavControls(playlistNav, playlistId) {
+  const prevEl = document.querySelector("[data-nav-prev]");
+  const nextEl = document.querySelector("[data-nav-next]");
+
+  function replaceNavSlot(el, videoId) {
+    if (!el) return;
+    if (videoId) {
+      const url = playlistId
+        ? `/video/${encodeURIComponent(videoId)}?playlist_id=${encodeURIComponent(playlistId)}`
+        : `/video/${encodeURIComponent(videoId)}`;
+      if (el.tagName === "A") {
+        el.href = url;
+      } else {
+        const a = document.createElement("a");
+        a.className = "menu-item";
+        a.textContent = el.textContent;
+        a.href = url;
+        if (el.hasAttribute("data-nav-prev")) a.setAttribute("data-nav-prev", "");
+        if (el.hasAttribute("data-nav-next")) a.setAttribute("data-nav-next", "");
+        el.replaceWith(a);
+      }
+    } else {
+      if (el.tagName !== "SPAN") {
+        const span = document.createElement("span");
+        span.className = "muted";
+        span.textContent = el.textContent;
+        if (el.hasAttribute("data-nav-prev")) span.setAttribute("data-nav-prev", "");
+        if (el.hasAttribute("data-nav-next")) span.setAttribute("data-nav-next", "");
+        el.replaceWith(span);
+      }
+    }
+  }
+
+  if (playlistNav) {
+    replaceNavSlot(prevEl, playlistNav.previous_video_id);
+    replaceNavSlot(nextEl, playlistNav.next_video_id);
+  }
+}
+
+function _updateSidebarActiveRow(videoId) {
+  const list = document.querySelector("ul[data-nav-playlist-id]");
+  if (!list) return;
+  list.dataset.navCurrentVideoId = videoId;
+  list.querySelectorAll(".video-row").forEach((row) => {
+    const isActive = row.dataset.videoId === videoId;
+    row.classList.toggle("active-row", isActive);
+    const prefix = row.querySelector(".row-prefix");
+    if (prefix) {
+      prefix.textContent = isActive ? "▶" : (prefix.dataset.positionLabel ?? prefix.textContent);
+    }
+  });
+  list.querySelector(".active-row")?.scrollIntoView({ block: "nearest" });
+}
+
+function setupVideoNavInterception() {
+  const list = document.querySelector("ul[data-nav-playlist-id]");
+  if (!list) return;
+
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest("a");
+    if (!link) return;
+
+    const inNavList = list.contains(link) && link.classList.contains("row-link");
+    const isNavControl = link.hasAttribute("data-nav-prev") || link.hasAttribute("data-nav-next");
+    if (!inNavList && !isNavControl) return;
+
+    const playlistId = list.dataset.navPlaylistId || null;
+    let videoId = null;
+
+    if (inNavList) {
+      const row = link.closest(".video-row");
+      videoId = row?.dataset?.videoId || null;
+    } else {
+      const url = new URL(link.href, window.location.href);
+      const pathMatch = url.pathname.match(/^\/video\/(.+)$/);
+      if (pathMatch) videoId = decodeURIComponent(pathMatch[1]);
+    }
+
+    if (!videoId) return;
+    event.preventDefault();
+    switchVideo(videoId, playlistId);
+  });
+
+  window.addEventListener("popstate", (event) => {
+    const state = event.state;
+    if (state && state.videoId) {
+      switchVideo(state.videoId, state.playlistId || null);
+    } else {
+      window.location.reload();
+    }
+  });
 }
 
 function setupVideoRowActions() {
@@ -440,8 +633,9 @@ function setupNavItems() {
 setupScanButton();
 setupUserMenu();
 setupThemeToggle();
-setupVideoPlayer();
+activeTeardown = setupVideoPlayer();
 setupVideoRowActions();
 setupLocalDates();
 setupLoadMore();
 setupNavItems();
+setupVideoNavInterception();

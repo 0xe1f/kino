@@ -2,7 +2,7 @@
   <a class="row-link" href="{{ video_link }}">
     {% set row_thumb = thumbnail_url(video) %}
     {% if row_prefix %}
-      <span class="row-prefix">{% if active_row %}▶{% else %}{{ row_prefix }}{% endif %}</span>
+      <span class="row-prefix" data-position-label="{{ row_prefix }}">{% if active_row %}▶{% else %}{{ row_prefix }}{% endif %}</span>
     {% endif %}
     {% if row_thumb %}
       <img src="{{ row_thumb }}" alt="{{ video.title }} thumbnail" class="thumb thumb-sm" />

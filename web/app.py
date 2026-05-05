@@ -351,6 +351,51 @@ def video_view(video_id: str):
     )
 
 
+@app.route("/api/video/<path:video_id>/watch-data")
+def api_video_watch_data(video_id: str):
+    user = g.get("user")
+    vid = normalize_video_id(video_id)
+    playlist_id = request.args.get("playlist_id")
+    video = videos.get(vid)
+    if not video:
+        return jsonify({"error": "Video not found"}), 404
+
+    resume_position = 0.0
+    is_liked = False
+    if user:
+        progress = playback.get_progress(user["user_id"], vid)
+        if progress:
+            resume_position = float(progress.get("last_position_seconds", 0.0))
+        reaction = reactions.get(user["user_id"], vid)
+        is_liked = bool(reaction and reaction.get("value") == "like")
+
+    playlist_nav = None
+    if playlist_id:
+        playlist = playlists.get(playlist_id)
+        if playlist:
+            nav = playlists.nav_metadata(playlist["_id"], vid)
+            if nav["count"] > 0:
+                playlist_nav = {
+                    "previous_video_id": nav.get("previous_video_id"),
+                    "next_video_id": nav.get("next_video_id"),
+                    "count": nav["count"],
+                }
+
+    return jsonify({
+        "video_id": vid,
+        "src": url_for("media_file", relative_path=video["relative_path"]),
+        "poster": thumbnail_url(video),
+        "title": video.get("title", ""),
+        "description": video.get("description", ""),
+        "created_at": video.get("created_at"),
+        "views": video.get("views", 0),
+        "likes": video.get("likes", 0),
+        "is_liked": is_liked,
+        "resume_position": resume_position,
+        "playlist_nav": playlist_nav,
+    })
+
+
 @app.route("/static/thumbs/<path:filename>")
 def generated_thumb(filename: str):
     resp = send_from_directory("static/thumbs", filename)

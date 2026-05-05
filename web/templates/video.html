@@ -41,7 +41,7 @@
         {% if video.created_at %}
           <p class="muted added-time">Added <time class="local-date" datetime="{{ video.created_at }}"></time></p>
         {% endif %}
-        <p class="muted">{{ video.description or "" }}</p>
+        <p id="video-description" class="muted">{{ video.description or "" }}</p>
         {% if not user %}
           <p class="muted">Login to store watch progress, history, and likes.</p>
         {% endif %}
@@ -54,14 +54,14 @@
         <p class="muted">{{ playlist_nav.count }} videos</p>
         <div class="row">
           {% if playlist_nav.previous_video_id %}
-            <a class="menu-item" href="{{ url_for('video_view', video_id=playlist_nav.previous_video_id, playlist_id=playlist._id) }}">Previous</a>
+            <a data-nav-prev class="menu-item" href="{{ url_for('video_view', video_id=playlist_nav.previous_video_id, playlist_id=playlist._id) }}">Previous</a>
           {% else %}
-            <span class="muted">Previous</span>
+            <span data-nav-prev class="muted">Previous</span>
           {% endif %}
           {% if playlist_nav.next_video_id %}
-            <a class="menu-item" href="{{ url_for('video_view', video_id=playlist_nav.next_video_id, playlist_id=playlist._id) }}">Next</a>
+            <a data-nav-next class="menu-item" href="{{ url_for('video_view', video_id=playlist_nav.next_video_id, playlist_id=playlist._id) }}">Next</a>
           {% else %}
-            <span class="muted">Next</span>
+            <span data-nav-next class="muted">Next</span>
           {% endif %}
           <span class="tag">Auto-advance on</span>
         </div>
