@@ -16,10 +16,10 @@
 * { box-sizing: border-box; }
 
 html[data-theme="night"] {
-  --bg: #0f1115;
+  --bg: #171d26;
   --text: #e8ecf1;
   --muted: #93a3ba;
-  --panel-bg: #171d26;
+  --panel-bg: #0f1115;
   --line: #232c38;
   --line-soft: #293242;
   --input-bg: #151a21;
@@ -31,10 +31,10 @@ html[data-theme="night"] {
 }
 
 html[data-theme="day"] {
-  --bg: #f4f6fa;
+  --bg: #ffffff;
   --text: #16202b;
   --muted: #4f657d;
-  --panel-bg: #ffffff;
+  --panel-bg: #f4f6fa;
   --line: #d8e0ea;
   --line-soft: #e3e9f0;
   --input-bg: #fdfefe;
@@ -78,6 +78,7 @@ input { width: 100%; }
 
 .site-header {
   padding: 10px 32px;
+  background: var(--panel-bg);
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
@@ -141,7 +142,7 @@ input { width: 100%; }
   right: 0;
   top: 24px;
   min-width: 140px;
-  background: var(--panel-bg);
+  background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px;
@@ -193,7 +194,7 @@ a.menu-item {
   width: 100%;
   margin: 0;
   padding: 18px 20px;
-  background: var(--panel-bg);
+  background: var(--bg);
 }
 
 .panel {
@@ -332,7 +333,7 @@ a.menu-item {
   right: 4px;
   top: 32px;
   min-width: 200px;
-  background: var(--panel-bg);
+  background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px;
