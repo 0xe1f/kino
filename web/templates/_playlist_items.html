@@ -14,7 +14,7 @@
   {% else %}
     {% set video = target %}
     {% set video_link = url_for('video_view', video_id=target._id, playlist_id=playlist_id) %}
-    {% set row_prefix = "▶" %}
+    {% set row_prefix = pair.position_label %}
     {% set row_meta = None %}
     {% set active_row = False %}
     {% include "_video_row.html" %}

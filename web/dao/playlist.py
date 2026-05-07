@@ -141,23 +141,30 @@ class PlaylistDAO:
             return None
         return user_doc.get("username")
 
+    def count_items(self, playlist_id: str) -> int:
+        """Lightweight total count for use in page headers. Called once on initial render only."""
+        selector = {"type": "playlist_item", "playlist_id": playlist_id}
+        sort = [{"type": "asc"}, {"playlist_id": "asc"}, {"position": "asc"}]
+        docs, _ = self._db.find_page(selector, sort, limit=25000, fields=["_id"])
+        return len(docs)
+
     def items_page(
-        self, playlist_id: str, offset: int, limit: int
-    ) -> tuple[list[dict[str, Any]], int]:
-        raw_items = sorted(
-            self._db.find_many("playlist_item", playlist_id=playlist_id),
-            key=lambda item: item.get("position", 0),
+        self, playlist_id: str, bookmark: str | None, start: int, limit: int
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Returns (collected, next_bookmark). Caller infers has_more from len(collected) == limit."""
+        selector = {"type": "playlist_item", "playlist_id": playlist_id}
+        sort = [{"type": "asc"}, {"playlist_id": "asc"}, {"position": "asc"}]
+        page_items, next_bookmark = self._db.find_page(
+            selector, sort, limit=limit, bookmark=bookmark or None
         )
-        total = len(raw_items)
-        page_items = raw_items[offset : offset + limit]
         target_ids = [item["item_id"] for item in page_items if item.get("item_id")]
         targets = self._db.get_many(target_ids)
         collected = []
-        for item in page_items:
+        for i, item in enumerate(page_items):
             target = targets.get(item.get("item_id"))
             if target:
-                collected.append({"item": item, "target": target})
-        return collected, total
+                collected.append({"item": item, "target": target, "position_label": start + i + 1})
+        return collected, next_bookmark
 
     def nav_metadata(
         self, playlist_id: str, current_video_id: str

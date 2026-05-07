@@ -86,6 +86,26 @@ class KinoDB:
         selector: dict[str, Any] = {"type": doc_type, **filters}
         return self.find_by_mango(selector)
 
+    def find_page(
+        self,
+        selector: dict[str, Any],
+        sort: list[dict[str, str]],
+        limit: int,
+        bookmark: str | None = None,
+        fields: list[str] | None = None,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Bookmark-based paginated query. Returns (docs, next_bookmark)."""
+        body: dict[str, Any] = {"selector": selector, "sort": sort, "limit": limit}
+        if bookmark:
+            body["bookmark"] = bookmark
+        if fields:
+            body["fields"] = fields
+        url = f"{self.url.rstrip('/')}/{self.db_name}/_find"
+        resp = _http.post(url, json=body, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        return data.get("docs", []), data.get("bookmark")
+
     def find_one(self, doc_type: str, **filters: Any) -> dict[str, Any] | None:
         selector: dict[str, Any] = {"type": doc_type, **filters}
         docs = self.find_by_mango(selector, limit=1)

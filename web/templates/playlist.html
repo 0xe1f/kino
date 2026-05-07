@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
   <section class="panel">
-    <h1>{{ playlist.name }}</h1>
+    <h1>{{ playlist.name }} <span class="muted item-count">{{ total }} items</span></h1>
     {% if playlist_owner %}
       <p class="muted">Owner: {{ playlist_owner }}</p>
     {% endif %}
@@ -16,9 +16,9 @@
         <button class="load-more-btn"
                 data-load-more
                 data-url="{{ url_for('api_playlist_items', playlist_id=playlist._id) }}"
-                data-offset="{{ next_offset }}"
-                data-total="{{ total }}">
-          Show {{ total - next_offset }} more
+                data-bookmark="{{ next_bookmark }}"
+                data-start="{{ next_start }}">
+          Load more
         </button>
       {% endif %}
     {% else %}

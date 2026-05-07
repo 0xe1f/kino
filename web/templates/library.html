@@ -9,7 +9,7 @@
     </aside>
     <div class="split-content">
       {% if library_section == "history" %}
-        <h1>Playback History</h1>
+        <h1>Playback History <span class="muted item-count">{{ total }} items</span></h1>
         {% if history_rows %}
           <ul class="list">
             {% include "_history_items.html" %}
@@ -18,16 +18,16 @@
             <button class="load-more-btn"
                     data-load-more
                     data-url="{{ url_for('api_history_items') }}"
-                    data-offset="{{ next_offset }}"
-                    data-total="{{ total }}">
-              Show {{ total - next_offset }} more
+                    data-bookmark="{{ next_bookmark }}"
+                    data-start="{{ next_start }}">
+              Load more
             </button>
           {% endif %}
         {% else %}
           <p class="muted">No playback history yet.</p>
         {% endif %}
       {% elif library_section == "playlists" %}
-        <h1>Your Playlists</h1>
+        <h1>Your Playlists <span class="muted item-count">{{ total }} items</span></h1>
         {% if playlists %}
           <ul class="list">
             {% include "_custom_playlists.html" %}
@@ -36,16 +36,16 @@
             <button class="load-more-btn"
                     data-load-more
                     data-url="{{ url_for('api_library_playlists_items') }}"
-                    data-offset="{{ next_offset }}"
-                    data-total="{{ total }}">
-              Show {{ total - next_offset }} more
+                    data-bookmark="{{ next_bookmark }}"
+                    data-start="{{ next_start }}">
+              Load more
             </button>
           {% endif %}
         {% else %}
           <p class="muted">No custom playlists yet.</p>
         {% endif %}
       {% else %}
-        <h1>{{ playlist.name }}</h1>
+        <h1>{{ playlist.name }} <span class="muted item-count">{{ total }} items</span></h1>
         {% if items or has_more %}
           <ul class="list">
             {% include "_playlist_items.html" %}
@@ -54,9 +54,9 @@
             <button class="load-more-btn"
                     data-load-more
                     data-url="{{ url_for('api_playlist_items', playlist_id=playlist._id) }}"
-                    data-offset="{{ next_offset }}"
-                    data-total="{{ total }}">
-              Show {{ total - next_offset }} more
+                    data-bookmark="{{ next_bookmark }}"
+                    data-start="{{ next_start }}">
+              Load more
             </button>
           {% endif %}
         {% else %}

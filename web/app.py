@@ -216,43 +216,51 @@ def profile():
 def _render_library_section(user: dict[str, Any], section: str):
     if section == "history":
         history_rows, total = playback.list_history_page(user, playlists, 0, PAGE_SIZE)
+        first_start = len(history_rows)
         content = {
             "history_rows": history_rows,
             "total": total,
-            "has_more": PAGE_SIZE < total,
-            "next_offset": PAGE_SIZE,
+            "has_more": len(history_rows) == PAGE_SIZE,
+            "next_bookmark": "",
+            "next_start": first_start,
         }
     elif section == "playlists":
         page_playlists, total = playlists.list_custom_for_user_page(user, 0, PAGE_SIZE)
+        first_start = len(page_playlists)
         content = {
             "playlists": page_playlists,
             "total": total,
-            "has_more": PAGE_SIZE < total,
-            "next_offset": PAGE_SIZE,
+            "has_more": len(page_playlists) == PAGE_SIZE,
+            "next_bookmark": "",
+            "next_start": first_start,
         }
     elif section == "favorites":
         favorites = playlists.ensure_builtin(user, "favorites")
-        items, total = playlists.items_page(favorites["_id"], 0, PAGE_SIZE)
+        total = playlists.count_items(favorites["_id"])
+        items, next_bookmark = playlists.items_page(favorites["_id"], None, 0, PAGE_SIZE)
         content = {
             "playlist": favorites,
             "playlist_id": favorites["_id"],
             "items": items,
             "total": total,
-            "has_more": PAGE_SIZE < total,
-            "next_offset": PAGE_SIZE,
+            "has_more": len(items) == PAGE_SIZE,
+            "next_bookmark": next_bookmark or "",
+            "next_start": len(items),
             "context_playlist_id": favorites["_id"],
             "context_playlist_removable": False,
         }
     elif section == "watch_later":
         watch_later = playlists.ensure_builtin(user, "watch_later")
-        items, total = playlists.items_page(watch_later["_id"], 0, PAGE_SIZE)
+        total = playlists.count_items(watch_later["_id"])
+        items, next_bookmark = playlists.items_page(watch_later["_id"], None, 0, PAGE_SIZE)
         content = {
             "playlist": watch_later,
             "playlist_id": watch_later["_id"],
             "items": items,
             "total": total,
-            "has_more": PAGE_SIZE < total,
-            "next_offset": PAGE_SIZE,
+            "has_more": len(items) == PAGE_SIZE,
+            "next_bookmark": next_bookmark or "",
+            "next_start": len(items),
             "context_playlist_id": watch_later["_id"],
             "context_playlist_removable": False,
         }
@@ -293,8 +301,8 @@ def playlist_view(playlist_id: str):
     if not playlist:
         return "Playlist not found", 404
     context_playlist_removable = playlists.removable_for_user(user, pid)
-    items, total = playlists.items_page(pid, 0, PAGE_SIZE)
-    next_offset = PAGE_SIZE
+    total = playlists.count_items(pid)
+    items, next_bookmark = playlists.items_page(pid, None, 0, PAGE_SIZE)
     return render_template(
         "playlist.html",
         user=user,
@@ -302,8 +310,9 @@ def playlist_view(playlist_id: str):
         playlist_id=pid,
         items=items,
         total=total,
-        has_more=next_offset < total,
-        next_offset=next_offset,
+        has_more=len(items) == PAGE_SIZE,
+        next_bookmark=next_bookmark or "",
+        next_start=len(items),
         playlist_owner=playlists.owner_username(playlist),
         context_playlist_id=pid,
         context_playlist_removable=context_playlist_removable,
@@ -423,9 +432,10 @@ def api_playlist_items(playlist_id: str):
     if not playlist:
         return jsonify({"error": "not found"}), 404
     user = g.get("user")
-    offset = request.args.get("offset", 0, type=int)
-    items, total = playlists.items_page(pid, offset, PAGE_SIZE)
-    next_offset = offset + PAGE_SIZE
+    bookmark = request.args.get("bookmark", "")
+    start = request.args.get("start", 0, type=int)
+    items, next_bookmark = playlists.items_page(pid, bookmark or None, start, PAGE_SIZE)
+    next_start = start + len(items)
     html = render_template(
         "_playlist_items.html",
         items=items,
@@ -434,7 +444,12 @@ def api_playlist_items(playlist_id: str):
         context_playlist_id=pid,
         context_playlist_removable=playlists.removable_doc_for_user(user, playlist),
     )
-    return jsonify({"html": html, "has_more": next_offset < total, "next_offset": next_offset, "total": total})
+    return jsonify({
+        "html": html,
+        "has_more": len(items) == PAGE_SIZE,
+        "next_bookmark": next_bookmark or "",
+        "next_start": next_start,
+    })
 
 
 @app.route("/api/playlist/<path:playlist_id>/nav-items")
@@ -461,21 +476,31 @@ def api_playlist_nav_items(playlist_id: str):
 @app.route("/api/library/history/items")
 @login_required
 def api_history_items():
-    offset = request.args.get("offset", 0, type=int)
-    rows, total = playback.list_history_page(g.user, playlists, offset, PAGE_SIZE)
-    next_offset = offset + PAGE_SIZE
+    start = request.args.get("start", 0, type=int)
+    rows, _ = playback.list_history_page(g.user, playlists, start, PAGE_SIZE)
+    next_start = start + len(rows)
     html = render_template("_history_items.html", history_rows=rows, user=g.user)
-    return jsonify({"html": html, "has_more": next_offset < total, "next_offset": next_offset, "total": total})
+    return jsonify({
+        "html": html,
+        "has_more": len(rows) == PAGE_SIZE,
+        "next_bookmark": "",
+        "next_start": next_start,
+    })
 
 
 @app.route("/api/library/playlists/items")
 @login_required
 def api_library_playlists_items():
-    offset = request.args.get("offset", 0, type=int)
-    page_playlists, total = playlists.list_custom_for_user_page(g.user, offset, PAGE_SIZE)
-    next_offset = offset + PAGE_SIZE
+    start = request.args.get("start", 0, type=int)
+    page_playlists, _ = playlists.list_custom_for_user_page(g.user, start, PAGE_SIZE)
+    next_start = start + len(page_playlists)
     html = render_template("_custom_playlists.html", playlists=page_playlists)
-    return jsonify({"html": html, "has_more": next_offset < total, "next_offset": next_offset, "total": total})
+    return jsonify({
+        "html": html,
+        "has_more": len(page_playlists) == PAGE_SIZE,
+        "next_bookmark": "",
+        "next_start": next_start,
+    })
 
 
 # ---------------------------------------------------------------------------

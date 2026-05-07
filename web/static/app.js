@@ -587,22 +587,24 @@ function setupLocalDates() {
 }
 
 function setupLoadMore() {
-  document.addEventListener("click", async (e) => {
-    const btn = e.target.closest("[data-load-more]");
-    if (!btn) return;
+  async function triggerLoadMore(btn) {
+    if (btn.disabled) return;
     btn.disabled = true;
     const url = btn.dataset.url;
-    const offset = parseInt(btn.dataset.offset, 10);
+    const bookmark = btn.dataset.bookmark || "";
+    const start = parseInt(btn.dataset.start || "0", 10);
     const originalText = btn.textContent;
     btn.textContent = "Loading...";
     try {
-      const data = await requestJSON(`${url}?offset=${offset}`);
+      const params = new URLSearchParams({ bookmark, start });
+      const data = await requestJSON(`${url}?${params}`);
       const list = btn.closest("section").querySelector("ul.list");
       list.insertAdjacentHTML("beforeend", data.html);
       if (data.has_more) {
-        btn.dataset.offset = data.next_offset;
+        btn.dataset.bookmark = data.next_bookmark;
+        btn.dataset.start = data.next_start;
         btn.disabled = false;
-        btn.textContent = `Show ${data.total - data.next_offset} more`;
+        btn.textContent = "Load more";
       } else {
         btn.remove();
       }
@@ -611,6 +613,19 @@ function setupLoadMore() {
       btn.disabled = false;
       btn.textContent = originalText;
     }
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) triggerLoadMore(entry.target);
+    });
+  }, { rootMargin: "0px 0px 200px 0px" });
+
+  document.querySelectorAll("[data-load-more]").forEach((btn) => observer.observe(btn));
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-load-more]");
+    if (btn) triggerLoadMore(btn);
   });
 }
 
