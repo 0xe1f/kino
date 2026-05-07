@@ -849,7 +849,8 @@ def _startup() -> None:
 
 
 with app.app_context():
-    _startup()
+    if not os.getenv("FLASK_TESTING"):
+        _startup()
 
 
 if __name__ == "__main__":
