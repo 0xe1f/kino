@@ -307,6 +307,76 @@ def watch_later_page():
     return _render_library_section(g.user, "watch_later")
 
 
+def _enrich_subplaylist_items(
+    items: list[dict[str, Any]],
+    user: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Attach counts, resume_url, first_video_url, navigate_url, resume_label,
+    show_navigate, and show_restart to each sub-playlist item. Uses batch queries."""
+    if not items:
+        return []
+    sub_ids = [pair["target"]["_id"] for pair in items]
+    counts_map = playlists.count_items_by_type_batch(sub_ids)
+    first_map = playlists.first_video_in_playlist_batch(sub_ids)
+    last_map = (
+        playback.last_videos_in_playlists(user["user_id"], sub_ids)
+        if user
+        else {}
+    )
+
+    # Batch-fetch all video docs needed for titles in one request.
+    video_ids_needed = list({v for v in (*last_map.values(), *first_map.values()) if v})
+    video_docs = db.get_many(video_ids_needed) if video_ids_needed else {}
+
+    enriched = []
+    for pair in items:
+        sub_id = pair["target"]["_id"]
+        counts = counts_map.get(sub_id, {"playlists": 0, "videos": 0})
+        first_vid = first_map.get(sub_id)
+        last_vid = last_map.get(sub_id)
+
+        navigate_url = url_for("playlist_view", playlist_id=sub_id)
+
+        if last_vid:
+            resume_url = url_for("video_view", video_id=last_vid, playlist_id=sub_id)
+        elif first_vid:
+            resume_url = url_for("video_view", video_id=first_vid, playlist_id=sub_id)
+        else:
+            resume_url = navigate_url
+
+        first_video_url = (
+            url_for("video_view", video_id=first_vid, playlist_id=sub_id)
+            if first_vid
+            else None
+        )
+
+        if last_vid:
+            title = (video_docs.get(last_vid) or {}).get("title", "")
+            resume_label = f"Resume: {title}" if title else "Resume"
+        elif first_vid:
+            title = (video_docs.get(first_vid) or {}).get("title", "")
+            resume_label = f"Play: {title}" if title else "Play"
+        else:
+            resume_label = ""
+
+        show_navigate = counts["playlists"] > 0
+        show_restart = bool(last_vid and first_vid and first_vid != last_vid)
+
+        enriched.append(
+            {
+                **pair,
+                "counts": counts,
+                "resume_url": resume_url,
+                "first_video_url": first_video_url,
+                "navigate_url": navigate_url,
+                "resume_label": resume_label,
+                "show_navigate": show_navigate,
+                "show_restart": show_restart,
+            }
+        )
+    return enriched
+
+
 @app.route("/playlist/<path:playlist_id>")
 def playlist_view(playlist_id: str):
     user = g.get("user")
@@ -315,18 +385,15 @@ def playlist_view(playlist_id: str):
     if not playlist:
         return "Playlist not found", 404
     context_playlist_removable = playlists.removable_for_user(user, pid)
-    total = playlists.count_items(pid)
-    items, next_bookmark = playlists.items_page(pid, None, 0, PAGE_SIZE)
+    raw_items = playlists.playlist_type_items(pid)
+    items = _enrich_subplaylist_items(raw_items, user)
     return render_template(
         "playlist.html",
         user=user,
         playlist=playlist,
         playlist_id=pid,
         items=items,
-        total=total,
-        has_more=len(items) == PAGE_SIZE,
-        next_bookmark=next_bookmark or "",
-        next_start=len(items),
+        total=len(items),
         playlist_owner=playlists.owner_username(playlist),
         context_playlist_id=pid,
         context_playlist_removable=context_playlist_removable,
@@ -688,15 +755,9 @@ def api_playlist_create():
         return jsonify({"error": "name is required"}), 400
 
     if parent_playlist_id:
-        parent = playlists.get(parent_playlist_id)
-        if not parent:
-            return jsonify({"error": "parent playlist not found"}), 404
-        if not playlists.can_edit(user, parent):
-            return jsonify({"error": "cannot use this parent playlist"}), 403
+        return jsonify({"error": "user playlists must be top-level"}), 400
 
-    playlist = playlists.create_user_playlist(
-        user, name=name, parent_playlist_id=parent_playlist_id
-    )
+    playlist = playlists.create_user_playlist(user, name=name)
     return jsonify({"ok": True, "playlist_id": playlist["_id"]})
 
 

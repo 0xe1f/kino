@@ -1,0 +1,54 @@
+{#
+  Copyright 2026 Akop Karapetyan
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+#}
+
+{% for pair in items %}
+  {% set target = pair.target %}
+  {% set target_thumb = thumbnail_url(target) %}
+  <li class="playlist-dir-row">
+    <a class="playlist-dir-thumb-link" href="{{ pair.resume_url }}">
+      {% if target_thumb %}
+        <img src="{{ target_thumb }}" alt="{{ target.name }} thumbnail" class="thumb thumb-sm" />
+      {% else %}
+        <div class="thumb thumb-sm playlist-dir-thumb-placeholder"></div>
+      {% endif %}
+    </a>
+    <div class="playlist-dir-info">
+      <div class="playlist-dir-name-row">
+        <a class="playlist-dir-name-link" href="{{ pair.resume_url }}">{{ target.name }}</a>
+        {% if pair.show_navigate %}
+          <a class="playlist-dir-browse" href="{{ pair.navigate_url }}" title="Browse sub-playlists">
+            <span class="material-symbols-rounded" style="font-size: 14px; line-height: 1;">folder_open</span>
+            Browse
+          </a>
+        {% endif %}
+      </div>
+      <div class="playlist-dir-meta">
+        <span class="muted">
+          {%- if pair.counts.playlists > 0 -%}
+            {{ pair.counts.playlists }} playlist{{ 's' if pair.counts.playlists != 1 }} &middot;
+          {%- endif -%}
+          {{ pair.counts.videos }} video{{ 's' if pair.counts.videos != 1 }}
+        </span>
+        {% if pair.resume_label %}
+          <span class="playlist-dir-resume-label">{{ pair.resume_label }}</span>
+        {% endif %}
+        {% if pair.show_restart %}
+          <a class="playlist-restart-link" href="{{ pair.first_video_url }}">Restart</a>
+        {% endif %}
+      </div>
+    </div>
+  </li>
+{% endfor %}

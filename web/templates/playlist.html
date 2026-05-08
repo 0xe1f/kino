@@ -17,26 +17,17 @@
 {% extends "base.html" %}
 {% block content %}
   <section class="panel">
-    <h1>{{ playlist.name }} <span class="muted item-count">{{ total }} items</span></h1>
+    <h1>{{ playlist.name }} <span class="muted item-count">{{ total }} playlist{{ 's' if total != 1 }}</span></h1>
     {% if playlist_owner %}
       <p class="muted">Owner: {{ playlist_owner }}</p>
     {% endif %}
   </section>
 
   <section class="panel">
-    {% if items or has_more %}
+    {% if items %}
       <ul class="list">
-        {% include "_playlist_items.html" %}
+        {% include "_playlist_dir_items.html" %}
       </ul>
-      {% if has_more %}
-        <button class="load-more-btn"
-                data-load-more
-                data-url="{{ url_for('api_playlist_items', playlist_id=playlist._id) }}"
-                data-bookmark="{{ next_bookmark }}"
-                data-start="{{ next_start }}">
-          Load more
-        </button>
-      {% endif %}
     {% else %}
       <p class="muted">This playlist is empty.</p>
     {% endif %}

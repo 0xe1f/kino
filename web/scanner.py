@@ -103,8 +103,8 @@ class ScannerManager:
             return {}
         tree: dict[str, Any] = {}
         for base, dirs, files in os.walk(root):
-            dirs.sort()
-            files.sort()
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            files = sorted(f for f in files if not f.startswith("."))
             rel = os.path.relpath(base, root)
             rel = "" if rel == "." else rel
             entry = tree.setdefault(
@@ -227,18 +227,30 @@ class ScannerManager:
         tree: dict[str, Any],
         valid_video_ids: set[str],
     ) -> None:
-        self._emit(
-            "scan_progress",
-            {"phase": "rebuilding_playlists", "processed": 0, "total": len(tree)},
-        )
-
         for item in db.find_many("playlist_item"):
             if item.get("owner_type") == "system":
                 db.delete(item)
         for playlist in db.find_many("playlist", owner_type="system"):
             db.delete(playlist)
 
-        sorted_dirs = sorted(tree.keys(), key=lambda x: (x.count("/"), x))
+        def _has_videos(rel: str, memo: dict[str, bool]) -> bool:
+            if rel in memo:
+                return memo[rel]
+            result = bool(tree[rel]["videos"]) or any(
+                _has_videos(c, memo) for c in tree[rel]["child_dirs"]
+            )
+            memo[rel] = result
+            return result
+
+        _memo: dict[str, bool] = {}
+        non_empty = {r for r in tree if _has_videos(r, _memo)}
+
+        sorted_dirs = sorted(non_empty, key=lambda x: (x.count("/"), x))
+
+        self._emit(
+            "scan_progress",
+            {"phase": "rebuilding_playlists", "processed": 0, "total": len(sorted_dirs)},
+        )
 
         for rel in sorted_dirs:
             pid = f"playlist:system:{sha1_text(rel or '__root__')}"
@@ -270,7 +282,8 @@ class ScannerManager:
             playlist_id = f"playlist:system:{sha1_text(rel or '__root__')}"
             position = 0
             child_dirs = sorted(
-                tree[rel]["child_dirs"], key=lambda v: tree[v]["name"].lower()
+                (c for c in tree[rel]["child_dirs"] if c in non_empty),
+                key=lambda v: tree[v]["name"].lower(),
             )
             for child_rel in child_dirs:
                 child_id = f"playlist:system:{sha1_text(child_rel or '__root__')}"
@@ -295,7 +308,8 @@ class ScannerManager:
                 continue
 
             child_dirs = sorted(
-                tree[rel]["child_dirs"], key=lambda v: tree[v]["name"].lower()
+                (c for c in tree[rel]["child_dirs"] if c in non_empty),
+                key=lambda v: tree[v]["name"].lower(),
             )
 
             thumb_kind = None
@@ -317,7 +331,8 @@ class ScannerManager:
                         break
             if not thumb_path:
                 for child_rel in sorted(
-                    tree[rel]["child_dirs"], key=lambda v: tree[v]["name"].lower()
+                    (c for c in tree[rel]["child_dirs"] if c in non_empty),
+                    key=lambda v: tree[v]["name"].lower(),
                 ):
                     child_id = f"playlist:system:{sha1_text(child_rel or '__root__')}"
                     child_playlist = db.get(child_id)

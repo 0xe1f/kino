@@ -141,6 +141,7 @@ class KinoDB:
             ["type", "builtin_kind"],
             ["type", "parent_playlist_id"],
             ["type", "username"],
+            ["type", "user_id", "playlist_id"],
         ]
         for fields in index_groups:
             try:

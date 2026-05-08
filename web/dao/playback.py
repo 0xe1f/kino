@@ -60,6 +60,32 @@ class PlaybackDAO:
         doc["watched_at"] = now_iso()
         self._db.save(doc)
 
+    def last_videos_in_playlists(
+        self,
+        user_id: str,
+        playlist_ids: list[str],
+    ) -> dict[str, str]:
+        """Return {playlist_id: video_id} for the most recently watched video in each playlist.
+        Only considers authenticated users. Uses a single query to avoid fetching in a loop."""
+        if not playlist_ids:
+            return {}
+        docs = self._db.find_by_mango(
+            {
+                "type": "playback_history",
+                "user_id": user_id,
+                "playlist_id": {"$in": playlist_ids},
+            }
+        )
+        best: dict[str, tuple[str, str]] = {}
+        for doc in docs:
+            pid = doc.get("playlist_id")
+            vid = doc.get("video_id")
+            watched_at = doc.get("watched_at", "")
+            if pid and vid:
+                if pid not in best or watched_at > best[pid][0]:
+                    best[pid] = (watched_at, vid)
+        return {pid: vid for pid, (_, vid) in best.items()}
+
     def list_history_page(
         self,
         user: dict[str, Any],

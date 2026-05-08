@@ -396,6 +396,106 @@ a.menu-item {
   word-break: break-word;
 }
 
+.playlist-dir-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.playlist-dir-thumb-link {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  position: relative;
+  z-index: 1;
+}
+
+.playlist-dir-thumb-placeholder {
+  background: var(--line-soft);
+}
+
+.playlist-dir-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 0;
+}
+
+.playlist-dir-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Stretched-link: invisible overlay covers the entire <li> so clicking
+   anywhere on the row (except Browse/Restart) navigates to resume_url. */
+.playlist-dir-name-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-dir-name-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.playlist-dir-name-link:hover { text-decoration: none; }
+
+/* Browse and Restart sit above the stretched-link overlay. */
+.playlist-dir-browse {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line-soft);
+  white-space: nowrap;
+}
+
+.playlist-dir-browse:hover {
+  color: var(--link);
+  border-color: var(--link);
+  text-decoration: none;
+}
+
+.playlist-dir-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.playlist-dir-resume-label {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.playlist-restart-link {
+  position: relative;
+  z-index: 1;
+  font-size: 11px;
+  color: var(--link);
+  white-space: nowrap;
+}
+
 .toast-root {
   position: fixed;
   right: 16px;

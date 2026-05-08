@@ -244,6 +244,73 @@ class PlaylistDAO:
         videos = [x for x in collected if x["item"].get("item_type") == "video"]
         return playlists + videos
 
+    def playlist_type_items(self, playlist_id: str) -> list[dict[str, Any]]:
+        """Return all playlist-type child items in position order, hydrated."""
+        raw_items = sorted(
+            self._db.find_by_mango(
+                {
+                    "type": "playlist_item",
+                    "playlist_id": playlist_id,
+                    "item_type": "playlist",
+                }
+            ),
+            key=lambda item: item.get("position", 0),
+        )
+        target_ids = [it["item_id"] for it in raw_items if it.get("item_id")]
+        targets = self._db.get_many(target_ids)
+        return [
+            {"item": it, "target": targets[it["item_id"]]}
+            for it in raw_items
+            if it.get("item_id") in targets
+        ]
+
+    def count_items_by_type_batch(
+        self, playlist_ids: list[str]
+    ) -> dict[str, dict[str, int]]:
+        """Return {playlist_id: {"playlists": N, "videos": M}} for all given IDs.
+        Uses a single query to avoid fetching in a loop."""
+        if not playlist_ids:
+            return {}
+        items = self._db.find_by_mango(
+            {"type": "playlist_item", "playlist_id": {"$in": playlist_ids}}
+        )
+        counts: dict[str, dict[str, int]] = {
+            pid: {"playlists": 0, "videos": 0} for pid in playlist_ids
+        }
+        for item in items:
+            pid = item.get("playlist_id")
+            itype = item.get("item_type")
+            if pid in counts:
+                if itype == "playlist":
+                    counts[pid]["playlists"] += 1
+                elif itype == "video":
+                    counts[pid]["videos"] += 1
+        return counts
+
+    def first_video_in_playlist_batch(
+        self, playlist_ids: list[str]
+    ) -> dict[str, str]:
+        """Return {playlist_id: video_id} for the first direct video item (lowest position)
+        in each playlist. Uses a single query to avoid fetching in a loop."""
+        if not playlist_ids:
+            return {}
+        items = self._db.find_by_mango(
+            {
+                "type": "playlist_item",
+                "playlist_id": {"$in": playlist_ids},
+                "item_type": "video",
+            }
+        )
+        best: dict[str, tuple[int, str]] = {}
+        for item in items:
+            pid = item.get("playlist_id")
+            pos = item.get("position", 0)
+            vid = item.get("item_id")
+            if pid and vid:
+                if pid not in best or pos < best[pid][0]:
+                    best[pid] = (pos, vid)
+        return {pid: vid for pid, (_, vid) in best.items()}
+
     def delete_tree(self, owner_user_id: str, playlist_id: str) -> None:
         for child in self._db.find_many("playlist", parent_playlist_id=playlist_id):
             if (
