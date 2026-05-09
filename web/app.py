@@ -250,8 +250,11 @@ def _render_library_section(user: dict[str, Any], section: str):
             "next_start": 0,
         }
     elif section == "playlists":
-        page_playlists, next_bookmark = playlists.list_custom_for_user_page(user, None, PAGE_SIZE)
-        total = playlists.count_custom_for_user(user)
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_page = ex.submit(playlists.list_custom_for_user_page, user, None, PAGE_SIZE)
+            f_total = ex.submit(playlists.count_custom_for_user, user)
+            page_playlists, next_bookmark = f_page.result()
+            total = f_total.result()
         content = {
             "playlists": page_playlists,
             "total": total,
@@ -261,8 +264,11 @@ def _render_library_section(user: dict[str, Any], section: str):
         }
     elif section == "favorites":
         favorites = playlists.ensure_builtin(user, "favorites")
-        total = playlists.count_items(favorites["_id"])
-        items, next_bookmark = playlists.items_page(favorites["_id"], None, 0, PAGE_SIZE)
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_total = ex.submit(playlists.count_items, favorites["_id"])
+            f_items = ex.submit(playlists.items_page, favorites["_id"], None, 0, PAGE_SIZE)
+            total = f_total.result()
+            items, next_bookmark = f_items.result()
         content = {
             "playlist": favorites,
             "playlist_id": favorites["_id"],
@@ -276,8 +282,11 @@ def _render_library_section(user: dict[str, Any], section: str):
         }
     elif section == "watch_later":
         watch_later = playlists.ensure_builtin(user, "watch_later")
-        total = playlists.count_items(watch_later["_id"])
-        items, next_bookmark = playlists.items_page(watch_later["_id"], None, 0, PAGE_SIZE)
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_total = ex.submit(playlists.count_items, watch_later["_id"])
+            f_items = ex.submit(playlists.items_page, watch_later["_id"], None, 0, PAGE_SIZE)
+            total = f_total.result()
+            items, next_bookmark = f_items.result()
         content = {
             "playlist": watch_later,
             "playlist_id": watch_later["_id"],
