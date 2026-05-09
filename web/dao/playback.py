@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from typing import Any
 
 from db import KinoDB
@@ -65,49 +66,72 @@ class PlaybackDAO:
         user_id: str,
         playlist_ids: list[str],
     ) -> dict[str, str]:
-        """Return {playlist_id: video_id} for the most recently watched video in each playlist.
-        Only considers authenticated users. Uses a single query to avoid fetching in a loop."""
+        """Return {playlist_id: video_id} for the most recently watched video in each playlist."""
         if not playlist_ids:
             return {}
-        docs = self._db.find_by_mango(
-            {
-                "type": "playback_history",
-                "user_id": user_id,
-                "playlist_id": {"$in": playlist_ids},
-            }
+        keys = [[user_id, pid] for pid in playlist_ids]
+        rows = self._db.query_view("kino", "last_watched_by_user_playlist", keys=keys, reduce=False)
+        result: dict[str, str] = {}
+        best_ts: dict[str, str] = {}
+        for row in rows:
+            pid = row["key"][1]
+            val = row["value"]
+            ts = val["watched_at"]
+            if pid not in best_ts or ts > best_ts[pid]:
+                best_ts[pid] = ts
+                result[pid] = val["video_id"]
+        return result
+
+    def count_history_for_user(self, user_id: str) -> int:
+        """Return total number of history entries for a user."""
+        rows = self._db.query_view_range(
+            "kino", "history_by_user_date",
+            startkey=[user_id, None],
+            endkey=[user_id, {}],
+            reduce=True,
+            group_level=1,
         )
-        best: dict[str, tuple[str, str]] = {}
-        for doc in docs:
-            pid = doc.get("playlist_id")
-            vid = doc.get("video_id")
-            watched_at = doc.get("watched_at", "")
-            if pid and vid:
-                if pid not in best or watched_at > best[pid][0]:
-                    best[pid] = (watched_at, vid)
-        return {pid: vid for pid, (_, vid) in best.items()}
+        return rows[0]["value"] if rows else 0
 
     def list_history_page(
         self,
         user: dict[str, Any],
         playlist_dao: Any,
-        offset: int,
+        bookmark: str | None,
         limit: int,
-    ) -> tuple[list[dict[str, Any]], int]:
-        history_docs = self._db.find_many("playback_history", user_id=user["user_id"])
-        history_docs.sort(key=lambda d: d.get("watched_at", ""), reverse=True)
-        total = len(history_docs)
-        page_docs = history_docs[offset : offset + limit]
-        video_ids = [d["video_id"] for d in page_docs if d.get("video_id")]
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Return (rows, next_bookmark) for one page of history, newest first."""
+        user_id = user["user_id"]
+        cursor: dict[str, Any] = json.loads(bookmark) if bookmark else {}
+        startkey = cursor.get("startkey", [user_id, {}])
+        startkey_docid: str | None = cursor.get("startkey_docid")
+
+        view_rows = self._db.query_view_range(
+            "kino", "history_by_user_date",
+            startkey=startkey,
+            endkey=[user_id, None],
+            descending=True,
+            limit=limit,
+            startkey_docid=startkey_docid,
+            skip=1 if startkey_docid else 0,
+            reduce=False,
+        )
+
+        video_ids = [r["value"]["video_id"] for r in view_rows if r.get("value", {}).get("video_id")]
         videos_map = self._db.get_many(video_ids)
         rows = []
-        for doc in page_docs:
-            video = videos_map.get(doc.get("video_id"))
+        for r in view_rows:
+            val = r.get("value") or {}
+            video = videos_map.get(val.get("video_id"))
             if not video:
                 continue
-            context_playlist_id = doc.get("playlist_id")
+            context_playlist_id = val.get("playlist_id")
             rows.append(
                 {
-                    "history": doc,
+                    "history": {
+                        "playlist_id": context_playlist_id,
+                        "watched_at": val.get("watched_at", ""),
+                    },
                     "video": video,
                     "context_playlist_id": context_playlist_id,
                     "context_playlist_removable": playlist_dao.removable_for_user(
@@ -115,25 +139,43 @@ class PlaybackDAO:
                     ),
                 }
             )
-        return rows, total
+
+        next_bookmark: str | None = None
+        if len(view_rows) == limit:
+            last = view_rows[-1]
+            next_bookmark = json.dumps({"startkey": last["key"], "startkey_docid": last["id"]})
+
+        return rows, next_bookmark
 
     def list_history_for_user(
         self,
         user: dict[str, Any],
         playlist_dao: Any,
     ) -> list[dict[str, Any]]:
-        history_docs = self._db.find_many("playback_history", user_id=user["user_id"])
-        video_ids = [d["video_id"] for d in history_docs if d.get("video_id")]
+        """Return all history for a user, newest first."""
+        user_id = user["user_id"]
+        view_rows = self._db.query_view_range(
+            "kino", "history_by_user_date",
+            startkey=[user_id, {}],
+            endkey=[user_id, None],
+            descending=True,
+            reduce=False,
+        )
+        video_ids = [r["value"]["video_id"] for r in view_rows if r.get("value", {}).get("video_id")]
         videos_map = self._db.get_many(video_ids)
         rows = []
-        for doc in history_docs:
-            video = videos_map.get(doc.get("video_id"))
+        for r in view_rows:
+            val = r.get("value") or {}
+            video = videos_map.get(val.get("video_id"))
             if not video:
                 continue
-            context_playlist_id = doc.get("playlist_id")
+            context_playlist_id = val.get("playlist_id")
             rows.append(
                 {
-                    "history": doc,
+                    "history": {
+                        "playlist_id": context_playlist_id,
+                        "watched_at": val.get("watched_at", ""),
+                    },
                     "video": video,
                     "context_playlist_id": context_playlist_id,
                     "context_playlist_removable": playlist_dao.removable_for_user(
@@ -141,5 +183,4 @@ class PlaybackDAO:
                     ),
                 }
             )
-        rows.sort(key=lambda row: row["history"].get("watched_at", ""), reverse=True)
         return rows

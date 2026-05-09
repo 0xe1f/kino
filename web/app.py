@@ -13,7 +13,9 @@
 # limitations under the License.
 
 import os
+import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from flask import Flask, g, jsonify, redirect, render_template, request, send_from_directory, session, url_for
@@ -35,6 +37,12 @@ from utils import (
     normalize_username,
     normalize_video_id,
     now_iso,
+)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
+    datefmt='%Y-%m-%d %H:%M:%S',
 )
 
 app = Flask(__name__)
@@ -229,24 +237,24 @@ def profile():
 
 def _render_library_section(user: dict[str, Any], section: str):
     if section == "history":
-        history_rows, total = playback.list_history_page(user, playlists, 0, PAGE_SIZE)
-        first_start = len(history_rows)
+        history_rows, next_bookmark = playback.list_history_page(user, playlists, None, PAGE_SIZE)
+        total = playback.count_history_for_user(user["user_id"])
         content = {
             "history_rows": history_rows,
             "total": total,
             "has_more": len(history_rows) == PAGE_SIZE,
-            "next_bookmark": "",
-            "next_start": first_start,
+            "next_bookmark": next_bookmark or "",
+            "next_start": 0,
         }
     elif section == "playlists":
-        page_playlists, total = playlists.list_custom_for_user_page(user, 0, PAGE_SIZE)
-        first_start = len(page_playlists)
+        page_playlists, next_bookmark = playlists.list_custom_for_user_page(user, None, PAGE_SIZE)
+        total = playlists.count_custom_for_user(user)
         content = {
             "playlists": page_playlists,
             "total": total,
             "has_more": len(page_playlists) == PAGE_SIZE,
-            "next_bookmark": "",
-            "next_start": first_start,
+            "next_bookmark": next_bookmark or "",
+            "next_start": 0,
         }
     elif section == "favorites":
         favorites = playlists.ensure_builtin(user, "favorites")
@@ -316,18 +324,18 @@ def _enrich_subplaylist_items(
     if not items:
         return []
     sub_ids = [pair["target"]["_id"] for pair in items]
-    counts_map = playlists.count_items_by_type_batch(sub_ids)
-    first_map = playlists.first_video_in_playlist_batch(sub_ids)
-    last_map = (
-        playback.last_videos_in_playlists(user["user_id"], sub_ids)
-        if user
-        else {}
-    )
-
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_counts = ex.submit(playlists.count_items_by_type_batch, sub_ids)
+        f_first = ex.submit(playlists.first_video_in_playlist_batch, sub_ids)
+        f_last = ex.submit(
+            playback.last_videos_in_playlists, user["user_id"], sub_ids
+        ) if user else None
+        counts_map = f_counts.result()
+        first_map = f_first.result()
+        last_map = f_last.result() if f_last else {}
     # Batch-fetch all video docs needed for titles in one request.
     video_ids_needed = list({v for v in (*last_map.values(), *first_map.values()) if v})
     video_docs = db.get_many(video_ids_needed) if video_ids_needed else {}
-
     enriched = []
     for pair in items:
         sub_id = pair["target"]["_id"]
@@ -384,7 +392,7 @@ def playlist_view(playlist_id: str):
     playlist = playlists.get(pid)
     if not playlist:
         return "Playlist not found", 404
-    context_playlist_removable = playlists.removable_for_user(user, pid)
+    context_playlist_removable = playlists.removable_doc_for_user(user, playlist)
     raw_items = playlists.playlist_type_items(pid)
     items = _enrich_subplaylist_items(raw_items, user)
     return render_template(
@@ -557,30 +565,28 @@ def api_playlist_nav_items(playlist_id: str):
 @app.route("/api/library/history/items")
 @login_required
 def api_history_items():
-    start = request.args.get("start", 0, type=int)
-    rows, _ = playback.list_history_page(g.user, playlists, start, PAGE_SIZE)
-    next_start = start + len(rows)
+    bookmark = request.args.get("bookmark") or None
+    rows, next_bookmark = playback.list_history_page(g.user, playlists, bookmark, PAGE_SIZE)
     html = render_template("_history_items.html", history_rows=rows, user=g.user)
     return jsonify({
         "html": html,
         "has_more": len(rows) == PAGE_SIZE,
-        "next_bookmark": "",
-        "next_start": next_start,
+        "next_bookmark": next_bookmark or "",
+        "next_start": 0,
     })
 
 
 @app.route("/api/library/playlists/items")
 @login_required
 def api_library_playlists_items():
-    start = request.args.get("start", 0, type=int)
-    page_playlists, _ = playlists.list_custom_for_user_page(g.user, start, PAGE_SIZE)
-    next_start = start + len(page_playlists)
+    bookmark = request.args.get("bookmark") or None
+    page_playlists, next_bookmark = playlists.list_custom_for_user_page(g.user, bookmark, PAGE_SIZE)
     html = render_template("_custom_playlists.html", playlists=page_playlists)
     return jsonify({
         "html": html,
         "has_more": len(page_playlists) == PAGE_SIZE,
-        "next_bookmark": "",
-        "next_start": next_start,
+        "next_bookmark": next_bookmark or "",
+        "next_start": 0,
     })
 
 
@@ -894,19 +900,24 @@ def api_playlist_reorder(playlist_id: str):
 # ---------------------------------------------------------------------------
 
 def _startup() -> None:
-    import logging
     media_root_host = os.getenv("MEDIA_ROOT_HOST", "not set")
-    log = logging.getLogger("kino")
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    log.info("Starting up")
-    log.info("Media root: %s => %s", media_root_host, media_root)
+    app.logger.info("Starting up")
+    app.logger.info("Media root: %s => %s", media_root_host, media_root)
     stale_lock = db.get("scan_lock")
     if stale_lock:
-        log.info("Clearing stale scan lock from previous run")
+        app.logger.info("Clearing stale scan lock from previous run")
         db.delete(stale_lock)
     db.ensure_indexes()
+    db.ensure_design_docs()
+    db.query_view("kino", "item_counts_by_playlist", keys=[], group=True)
+    db.query_view("kino", "first_video_by_playlist", keys=[], group=True)
+    db.query_view("kino", "last_watched_by_user_playlist", keys=[], group=True)
+    db.query_view("kino", "history_by_user_date", keys=[], group=True)
+    db.query_view("kino", "item_count_by_playlist", keys=[], group=True)
+    db.query_view("kino", "playlist_count_by_owner", keys=[], group=True)
+    db.query_view_range("kino", "playlist_items_by_playlist_type", startkey=None, endkey=None, limit=1)
     run_phase3_migration()
-    log.info("Startup complete")
+    app.logger.info("Startup complete")
 
 
 with app.app_context():

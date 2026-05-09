@@ -33,6 +33,18 @@ Any new data tied to a user should be deleted when the user is deleted.
 
 Any lists expected to generate a large-ish amount of data (100 or more rows) should be paginated. Pagination should be asynchronous on the client side. Paginate using database's own facilities. Do not order, paginate, or otherwise manipulate large result sets in Python - except on the pages themselves.
 
+## CouchDB views
+
+Use CouchDB map/reduce views (not Mango `_find`) for:
+
+- **Aggregations** (counts, sums, first/last in a sorted set). Never fetch a large result set just to count it in Python.
+- **Multi-key batch lookups** that would otherwise require `$in`. Use `query_view(keys=[...], group=True)` instead.
+- **Sorted pagination** where the sort order must come from the database (e.g. history sorted by date descending).
+
+All views live in `_design/kino`, defined in `db.py::ensure_design_docs()`. Any new view must also be warmed at startup (call `query_view` or `query_view_range` with an empty/bounded query after `ensure_design_docs()`).
+
+`$in` queries are a red flag — they do not use the B-tree efficiently and degrade linearly with collection size. Audit and replace them with views.
+
 ## Networking
 
 Do not leave any ports open to the public that are not necessary. Generally speaking, anything that's not a web service should be inaccessible from the public internet.

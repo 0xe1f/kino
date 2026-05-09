@@ -157,10 +157,8 @@ class PlaylistDAO:
 
     def count_items(self, playlist_id: str) -> int:
         """Lightweight total count for use in page headers. Called once on initial render only."""
-        selector = {"type": "playlist_item", "playlist_id": playlist_id}
-        sort = [{"type": "asc"}, {"playlist_id": "asc"}, {"position": "asc"}]
-        docs, _ = self._db.find_page(selector, sort, limit=25000, fields=["_id"])
-        return len(docs)
+        rows = self._db.query_view("kino", "item_count_by_playlist", keys=[playlist_id], group=True)
+        return rows[0]["value"] if rows else 0
 
     def items_page(
         self, playlist_id: str, bookmark: str | None, start: int, limit: int
@@ -220,12 +218,29 @@ class PlaylistDAO:
                 collected.append({"item": item, "target": target, "position_label": i + 1})
         return collected
 
+    def count_custom_for_user(self, user: dict[str, Any]) -> int:
+        rows = self._db.query_view(
+            "kino", "playlist_count_by_owner",
+            keys=[["user", user["user_id"]]],
+            group=True,
+        )
+        return rows[0]["value"] if rows else 0
+
     def list_custom_for_user_page(
-        self, user: dict[str, Any], offset: int, limit: int
-    ) -> tuple[list[dict[str, Any]], int]:
-        all_playlists = self.list_custom_for_user(user)
-        total = len(all_playlists)
-        return all_playlists[offset : offset + limit], total
+        self, user: dict[str, Any], bookmark: str | None, limit: int
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        selector = {
+            "type": "playlist",
+            "owner_type": "user",
+            "owner_id": user["user_id"],
+            "builtin_kind": {"$exists": False},
+            "hidden_from_lists": {"$ne": True},
+        }
+        sort = [{"type": "asc"}, {"owner_type": "asc"}, {"owner_id": "asc"}, {"name": "asc"}]
+        docs, next_bookmark = self._db.find_page(
+            selector, sort, limit=limit, bookmark=bookmark or None
+        )
+        return docs, next_bookmark
 
     def items(self, playlist_id: str) -> list[dict[str, Any]]:
         raw_items = sorted(
@@ -246,70 +261,57 @@ class PlaylistDAO:
 
     def playlist_type_items(self, playlist_id: str) -> list[dict[str, Any]]:
         """Return all playlist-type child items in position order, hydrated."""
-        raw_items = sorted(
-            self._db.find_by_mango(
-                {
-                    "type": "playlist_item",
-                    "playlist_id": playlist_id,
-                    "item_type": "playlist",
-                }
-            ),
-            key=lambda item: item.get("position", 0),
+        rows = self._db.query_view_range(
+            "kino", "playlist_items_by_playlist_type",
+            startkey=[playlist_id, "playlist", None],
+            endkey=[playlist_id, "playlist", {}],
         )
-        target_ids = [it["item_id"] for it in raw_items if it.get("item_id")]
+        target_ids = [row["value"] for row in rows if row.get("value")]
         targets = self._db.get_many(target_ids)
         return [
-            {"item": it, "target": targets[it["item_id"]]}
-            for it in raw_items
-            if it.get("item_id") in targets
+            {"target": targets[row["value"]]}
+            for row in rows
+            if row.get("value") in targets
         ]
 
     def count_items_by_type_batch(
         self, playlist_ids: list[str]
     ) -> dict[str, dict[str, int]]:
-        """Return {playlist_id: {"playlists": N, "videos": M}} for all given IDs.
-        Uses a single query to avoid fetching in a loop."""
+        """Return {playlist_id: {"playlists": N, "videos": M}} for all given IDs."""
         if not playlist_ids:
             return {}
-        items = self._db.find_by_mango(
-            {"type": "playlist_item", "playlist_id": {"$in": playlist_ids}}
-        )
+        keys = [[pid, "video"] for pid in playlist_ids] + [[pid, "playlist"] for pid in playlist_ids]
+        rows = self._db.query_view("kino", "item_counts_by_playlist", keys=keys, group=True)
         counts: dict[str, dict[str, int]] = {
             pid: {"playlists": 0, "videos": 0} for pid in playlist_ids
         }
-        for item in items:
-            pid = item.get("playlist_id")
-            itype = item.get("item_type")
+        for row in rows:
+            pid, itype = row["key"]
             if pid in counts:
                 if itype == "playlist":
-                    counts[pid]["playlists"] += 1
+                    counts[pid]["playlists"] = row["value"]
                 elif itype == "video":
-                    counts[pid]["videos"] += 1
+                    counts[pid]["videos"] = row["value"]
         return counts
 
     def first_video_in_playlist_batch(
         self, playlist_ids: list[str]
     ) -> dict[str, str]:
         """Return {playlist_id: video_id} for the first direct video item (lowest position)
-        in each playlist. Uses a single query to avoid fetching in a loop."""
+        in each playlist."""
         if not playlist_ids:
             return {}
-        items = self._db.find_by_mango(
-            {
-                "type": "playlist_item",
-                "playlist_id": {"$in": playlist_ids},
-                "item_type": "video",
-            }
-        )
-        best: dict[str, tuple[int, str]] = {}
-        for item in items:
-            pid = item.get("playlist_id")
-            pos = item.get("position", 0)
-            vid = item.get("item_id")
-            if pid and vid:
-                if pid not in best or pos < best[pid][0]:
-                    best[pid] = (pos, vid)
-        return {pid: vid for pid, (_, vid) in best.items()}
+        rows = self._db.query_view("kino", "first_video_by_playlist", keys=playlist_ids, reduce=False)
+        result: dict[str, str] = {}
+        best_pos: dict[str, int] = {}
+        for row in rows:
+            pid = row["key"]
+            val = row["value"]
+            pos = val["pos"]
+            if pid not in best_pos or pos < best_pos[pid]:
+                best_pos[pid] = pos
+                result[pid] = val["id"]
+        return result
 
     def delete_tree(self, owner_user_id: str, playlist_id: str) -> None:
         for child in self._db.find_many("playlist", parent_playlist_id=playlist_id):

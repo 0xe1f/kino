@@ -120,6 +120,188 @@ class KinoDB:
         data = resp.json()
         return data.get("docs", []), data.get("bookmark")
 
+    def query_view(
+        self,
+        ddoc: str,
+        view: str,
+        keys: list | None = None,
+        group: bool = False,
+        reduce: bool | None = None,
+    ) -> list[dict[str, Any]]:
+        """Multi-key or grouped reduce query. Returns the rows list."""
+        url = f"{self.url.rstrip('/')}/{self.db_name}/_design/{ddoc}/_view/{view}"
+        body: dict[str, Any] = {}
+        if keys is not None:
+            body["keys"] = keys
+        if group:
+            body["group"] = True
+        if reduce is not None:
+            body["reduce"] = reduce
+        resp = _http.post(url, json=body, timeout=30)
+        resp.raise_for_status()
+        return resp.json().get("rows", [])
+
+    def query_view_range(
+        self,
+        ddoc: str,
+        view: str,
+        startkey: Any = None,
+        endkey: Any = None,
+        descending: bool = False,
+        limit: int | None = None,
+        startkey_docid: str | None = None,
+        skip: int = 0,
+        reduce: bool | None = None,
+        group_level: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Range query against a view. Supports cursor pagination via startkey_docid."""
+        url = f"{self.url.rstrip('/')}/{self.db_name}/_design/{ddoc}/_view/{view}"
+        body: dict[str, Any] = {}
+        if startkey is not None:
+            body["startkey"] = startkey
+        if endkey is not None:
+            body["endkey"] = endkey
+        if descending:
+            body["descending"] = True
+        if limit is not None:
+            body["limit"] = limit
+        if startkey_docid:
+            body["startkey_docid"] = startkey_docid
+        if skip:
+            body["skip"] = skip
+        if reduce is not None:
+            body["reduce"] = reduce
+        if group_level is not None:
+            body["group_level"] = group_level
+            body["group"] = True
+        resp = _http.post(url, json=body, timeout=30)
+        resp.raise_for_status()
+        return resp.json().get("rows", [])
+
+    def ensure_design_docs(self) -> None:
+        """Create or update the _design/kino design document with all views."""
+        ddoc_id = "_design/kino"
+        url = f"{self.url.rstrip('/')}/{self.db_name}/{ddoc_id}"
+
+        item_counts_map = (
+            "function(doc) {"
+            " if (doc.type === 'playlist_item' && doc.playlist_id && doc.item_type) {"
+            "  emit([doc.playlist_id, doc.item_type], null);"
+            " }"
+            "}"
+        )
+
+        first_video_map = (
+            "function(doc) {"
+            " if (doc.type === 'playlist_item' && doc.item_type === 'video'"
+            "     && doc.playlist_id && doc.item_id) {"
+            "  emit(doc.playlist_id, {pos: doc.position || 0, id: doc.item_id});"
+            " }"
+            "}"
+        )
+        first_video_reduce = (
+            "function(keys, values, rereduce) {"
+            " var best = values[0];"
+            " for (var i = 1; i < values.length; i++) {"
+            "  if (values[i].pos < best.pos) { best = values[i]; }"
+            " }"
+            " return best;"
+            "}"
+        )
+
+        last_watched_map = (
+            "function(doc) {"
+            " if (doc.type === 'playback_history' && doc.user_id && doc.playlist_id"
+            "     && doc.video_id && doc.watched_at) {"
+            "  emit([doc.user_id, doc.playlist_id],"
+            "       {watched_at: doc.watched_at, video_id: doc.video_id});"
+            " }"
+            "}"
+        )
+        last_watched_reduce = (
+            "function(keys, values, rereduce) {"
+            " var best = values[0];"
+            " for (var i = 1; i < values.length; i++) {"
+            "  if (values[i].watched_at > best.watched_at) { best = values[i]; }"
+            " }"
+            " return best;"
+            "}"
+        )
+
+        history_by_user_date_map = (
+            "function(doc) {"
+            " if (doc.type === 'playback_history' && doc.user_id && doc.video_id && doc.watched_at) {"
+            "  emit([doc.user_id, doc.watched_at],"
+            "       {video_id: doc.video_id, playlist_id: doc.playlist_id || null,"
+            "        watched_at: doc.watched_at});"
+            " }"
+            "}"
+        )
+
+        item_count_by_playlist_map = (
+            "function(doc) {"
+            " if (doc.type === 'playlist_item' && doc.playlist_id) {"
+            "  emit(doc.playlist_id, null);"
+            " }"
+            "}"
+        )
+
+        playlist_count_by_owner_map = (
+            "function(doc) {"
+            " if (doc.type === 'playlist' && doc.owner_type && doc.owner_id"
+            "     && !doc.builtin_kind && !doc.hidden_from_lists) {"
+            "  emit([doc.owner_type, doc.owner_id], null);"
+            " }"
+            "}"
+        )
+
+        playlist_items_by_playlist_type_map = (
+            "function(doc) {"
+            " if (doc.type === 'playlist_item' && doc.playlist_id && doc.item_type && doc.item_id) {"
+            "  emit([doc.playlist_id, doc.item_type, doc.position || 0], doc.item_id);"
+            " }"
+            "}"
+        )
+
+        ddoc: dict[str, Any] = {
+            "_id": ddoc_id,
+            "views": {
+                "item_counts_by_playlist": {
+                    "map": item_counts_map,
+                    "reduce": "_count",
+                },
+                "first_video_by_playlist": {
+                    "map": first_video_map,
+                    "reduce": first_video_reduce,
+                },
+                "last_watched_by_user_playlist": {
+                    "map": last_watched_map,
+                    "reduce": last_watched_reduce,
+                },
+                "history_by_user_date": {
+                    "map": history_by_user_date_map,
+                    "reduce": "_count",
+                },
+                "item_count_by_playlist": {
+                    "map": item_count_by_playlist_map,
+                    "reduce": "_count",
+                },
+                "playlist_count_by_owner": {
+                    "map": playlist_count_by_owner_map,
+                    "reduce": "_count",
+                },
+                "playlist_items_by_playlist_type": {
+                    "map": playlist_items_by_playlist_type_map,
+                },
+            },
+        }
+
+        existing = self.get(ddoc_id)
+        if existing:
+            ddoc["_rev"] = existing["_rev"]
+        resp = _http.put(url, json=ddoc, timeout=10)
+        resp.raise_for_status()
+
     def find_one(self, doc_type: str, **filters: Any) -> dict[str, Any] | None:
         selector: dict[str, Any] = {"type": doc_type, **filters}
         docs = self.find_by_mango(selector, limit=1)
@@ -142,6 +324,7 @@ class KinoDB:
             ["type", "parent_playlist_id"],
             ["type", "username"],
             ["type", "user_id", "playlist_id"],
+            ["type", "owner_type", "owner_id", "name"],
         ]
         for fields in index_groups:
             try:
