@@ -77,6 +77,21 @@ class PlaylistDAO:
         playlist = self._db.get(playlist_id)
         return self.removable_doc_for_user(user, playlist)
 
+    def removable_batch_for_user(
+        self,
+        user: dict[str, Any] | None,
+        playlist_ids: list[str],
+    ) -> dict[str, bool]:
+        """Return {playlist_id: removable} for the given IDs in a single batch fetch."""
+        if not user or not playlist_ids:
+            return {}
+        unique_ids = list({pid for pid in playlist_ids if pid})
+        docs = self._db.get_many(unique_ids)
+        return {
+            pid: self.removable_doc_for_user(user, docs.get(pid))
+            for pid in unique_ids
+        }
+
     def ensure_builtin(
         self,
         user: dict[str, Any],

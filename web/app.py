@@ -237,8 +237,11 @@ def profile():
 
 def _render_library_section(user: dict[str, Any], section: str):
     if section == "history":
-        history_rows, next_bookmark = playback.list_history_page(user, playlists, None, PAGE_SIZE)
-        total = playback.count_history_for_user(user["user_id"])
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_rows = ex.submit(playback.list_history_page, user, playlists, None, PAGE_SIZE)
+            f_total = ex.submit(playback.count_history_for_user, user["user_id"])
+            history_rows, next_bookmark = f_rows.result()
+            total = f_total.result()
         content = {
             "history_rows": history_rows,
             "total": total,

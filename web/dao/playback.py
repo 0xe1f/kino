@@ -119,6 +119,8 @@ class PlaybackDAO:
 
         video_ids = [r["value"]["video_id"] for r in view_rows if r.get("value", {}).get("video_id")]
         videos_map = self._db.get_many(video_ids)
+        context_playlist_ids = [r["value"].get("playlist_id") for r in view_rows if r.get("value")]
+        removable_map = playlist_dao.removable_batch_for_user(user, context_playlist_ids)
         rows = []
         for r in view_rows:
             val = r.get("value") or {}
@@ -134,9 +136,7 @@ class PlaybackDAO:
                     },
                     "video": video,
                     "context_playlist_id": context_playlist_id,
-                    "context_playlist_removable": playlist_dao.removable_for_user(
-                        user, context_playlist_id
-                    ),
+                    "context_playlist_removable": removable_map.get(context_playlist_id, False),
                 }
             )
 
@@ -163,6 +163,8 @@ class PlaybackDAO:
         )
         video_ids = [r["value"]["video_id"] for r in view_rows if r.get("value", {}).get("video_id")]
         videos_map = self._db.get_many(video_ids)
+        context_playlist_ids = [r["value"].get("playlist_id") for r in view_rows if r.get("value")]
+        removable_map = playlist_dao.removable_batch_for_user(user, context_playlist_ids)
         rows = []
         for r in view_rows:
             val = r.get("value") or {}
@@ -178,9 +180,7 @@ class PlaybackDAO:
                     },
                     "video": video,
                     "context_playlist_id": context_playlist_id,
-                    "context_playlist_removable": playlist_dao.removable_for_user(
-                        user, context_playlist_id
-                    ),
+                    "context_playlist_removable": removable_map.get(context_playlist_id, False),
                 }
             )
         return rows
