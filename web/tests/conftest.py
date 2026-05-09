@@ -46,13 +46,16 @@ class FakeDB:
         page_docs: list | None = None,
         get_many_result: dict | None = None,
         bookmarks: list[str | None] | None = None,
+        query_view_rows: list | None = None,
     ):
         self._page_docs = page_docs or []
         self._get_many_result = get_many_result or {}
         self._bookmarks = bookmarks if bookmarks is not None else [None]
         self._bm_index = 0
+        self._query_view_rows = query_view_rows or []
         self.find_page_calls: list[dict] = []
         self.get_many_calls: list[list] = []
+        self.query_view_calls: list[dict] = []
 
     def find_page(self, selector, sort, limit, bookmark=None, fields=None):
         self.find_page_calls.append(
@@ -67,3 +70,7 @@ class FakeDB:
     def get_many(self, ids: list[str]) -> dict:
         self.get_many_calls.append(list(ids))
         return {k: v for k, v in self._get_many_result.items() if k in ids}
+
+    def query_view(self, ddoc, view, keys=None, group=False, reduce=None):
+        self.query_view_calls.append({"ddoc": ddoc, "view": view, "keys": keys})
+        return self._query_view_rows
