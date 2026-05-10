@@ -19,7 +19,6 @@
   <section class="split-layout white-surface">
     <aside class="split-nav">
       <a class="split-nav-item {% if library_section == 'history' %}active{% endif %}" href="{{ url_for('history_page') }}">History</a>
-      <a class="split-nav-item {% if library_section == 'playlists' %}active{% endif %}" href="{{ url_for('playlists_page') }}">Playlists</a>
       <a class="split-nav-item {% if library_section == 'favorites' %}active{% endif %}" href="{{ url_for('favorites_page') }}">Favorites</a>
       <a class="split-nav-item {% if library_section == 'watch_later' %}active{% endif %}" href="{{ url_for('watch_later_page') }}">Watch Later</a>
     </aside>

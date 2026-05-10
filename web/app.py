@@ -107,9 +107,17 @@ def inject_template_globals():
 @app.route("/")
 def index():
     user = g.get("user")
-    top_playlists = playlists.top_level(user)
+    all_top = playlists.top_level(user)
+    system_playlists = [p for p in all_top if p.get("owner_type") == "system"]
+    user_playlists = [p for p in all_top if p.get("owner_type") == "user"]
     has_videos = videos.exists_any()
-    return render_template("index.html", user=user, playlists=top_playlists, has_videos=has_videos)
+    return render_template(
+        "index.html",
+        user=user,
+        system_playlists=system_playlists,
+        user_playlists=user_playlists,
+        has_videos=has_videos,
+    )
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -405,6 +413,28 @@ def playlist_view(playlist_id: str):
     if not playlist:
         return "Playlist not found", 404
     context_playlist_removable = playlists.removable_doc_for_user(user, playlist)
+    is_user_playlist = playlist.get("owner_type") == "user"
+    if is_user_playlist:
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_total = ex.submit(playlists.count_items, pid)
+            f_items = ex.submit(playlists.items_page, pid, None, 0, PAGE_SIZE)
+            total = f_total.result()
+            items, next_bookmark = f_items.result()
+        return render_template(
+            "playlist.html",
+            user=user,
+            playlist=playlist,
+            playlist_id=pid,
+            is_user_playlist=True,
+            items=items,
+            total=total,
+            has_more=len(items) == PAGE_SIZE,
+            next_bookmark=next_bookmark or "",
+            next_start=len(items),
+            playlist_owner=playlists.owner_username(playlist),
+            context_playlist_id=pid,
+            context_playlist_removable=context_playlist_removable,
+        )
     raw_items = playlists.playlist_type_items(pid)
     items = _enrich_subplaylist_items(raw_items, user)
     return render_template(
@@ -412,6 +442,7 @@ def playlist_view(playlist_id: str):
         user=user,
         playlist=playlist,
         playlist_id=pid,
+        is_user_playlist=False,
         items=items,
         total=len(items),
         playlist_owner=playlists.owner_username(playlist),
@@ -716,7 +747,7 @@ def api_video_add_to_playlist(video_id: str):
 
     existing_item = playlist_items.find_video_in_playlist(playlist_id, vid)
     if existing_item:
-        return jsonify({"ok": True, "already_present": True, "playlist_id": playlist_id})
+        return jsonify({"error": "Video is already part of the playlist"}), 409
 
     playlist_items.add(playlist_id, "video", vid)
     return jsonify({"ok": True, "playlist_id": playlist_id})

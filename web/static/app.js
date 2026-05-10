@@ -106,7 +106,7 @@ function setupScanButton() {
       if (sawCompletion) return;
       sawCompletion = true;
       setScanLoading(false);
-      showToast("Library scan complete. Refreshing...");
+      showToast("Video Archive scan complete. Refreshing...");
       setTimeout(() => window.location.reload(), 800);
     });
     socket.on("scan_failed", (payload = {}) => {
@@ -514,12 +514,17 @@ function setupVideoRowActions() {
             if (created) payload.new_playlist_name = created;
             else if (selected) payload.playlist_id = selected;
             else return;
-            await requestJSON(`/api/video/${encodeURIComponent(videoId)}/add-to-playlist`, {
-              method: "POST",
-              body: JSON.stringify(payload),
-            });
-            dialog.close();
-            showToast("Saved to playlist");
+            try {
+              await requestJSON(`/api/video/${encodeURIComponent(videoId)}/add-to-playlist`, {
+                method: "POST",
+                body: JSON.stringify(payload),
+              });
+              dialog.close();
+              showToast("Saved to playlist");
+            } catch (err) {
+              dialog.close();
+              showToast(err.message || "Failed to add to playlist");
+            }
           };
           dialog.showModal();
           return;

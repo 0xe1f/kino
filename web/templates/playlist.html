@@ -17,19 +17,42 @@
 {% extends "base.html" %}
 {% block content %}
   <section class="panel">
-    <h1>{{ playlist.name }} <span class="muted item-count">{{ total }} playlist{{ 's' if total != 1 }}</span></h1>
+    {% if is_user_playlist %}
+      <h1>{{ playlist.name }} <span class="muted item-count">{{ total }} video{{ 's' if total != 1 }}</span></h1>
+    {% else %}
+      <h1>{{ playlist.name }} <span class="muted item-count">{{ total }} playlist{{ 's' if total != 1 }}</span></h1>
+    {% endif %}
     {% if playlist_owner %}
       <p class="muted">Owner: {{ playlist_owner }}</p>
     {% endif %}
   </section>
 
   <section class="panel">
-    {% if items %}
-      <ul class="list">
-        {% include "_playlist_dir_items.html" %}
-      </ul>
+    {% if is_user_playlist %}
+      {% if items or has_more %}
+        <ul class="list">
+          {% include "_playlist_items.html" %}
+        </ul>
+        {% if has_more %}
+          <button class="load-more-btn"
+                  data-load-more
+                  data-url="{{ url_for('api_playlist_items', playlist_id=playlist._id) }}"
+                  data-bookmark="{{ next_bookmark }}"
+                  data-start="{{ next_start }}">
+            Load more
+          </button>
+        {% endif %}
+      {% else %}
+        <p class="muted">This playlist is empty.</p>
+      {% endif %}
     {% else %}
-      <p class="muted">This playlist is empty.</p>
+      {% if items %}
+        <ul class="list">
+          {% include "_playlist_dir_items.html" %}
+        </ul>
+      {% else %}
+        <p class="muted">This playlist is empty.</p>
+      {% endif %}
     {% endif %}
   </section>
 {% endblock %}
