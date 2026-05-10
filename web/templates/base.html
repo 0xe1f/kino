@@ -37,7 +37,7 @@
             <summary class="user-menu-summary">{{ user.username }}</summary>
             <div class="user-menu-items">
               <a href="{{ url_for('profile') }}" class="menu-item">Account</a>
-              <a href="{{ url_for('playlists_page') }}" class="menu-item">Library</a>
+              <a href="{{ url_for('history_page') }}" class="menu-item">Library</a>
               <form method="post" action="{{ url_for('logout') }}" class="menu-form">
                 <button type="submit" class="menu-item menu-item-button">Logout</button>
               </form>
@@ -62,6 +62,7 @@
           </label>
           <label>Or create new playlist
             <input id="new-playlist-name" type="text" placeholder="New playlist name" />
+            <small id="new-playlist-name-feedback" class="muted"></small>
           </label>
           <div class="row">
             <button id="playlist-dialog-submit" value="submit">Save</button>

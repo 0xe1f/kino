@@ -110,7 +110,7 @@ class ScannerManager:
             entry = tree.setdefault(
                 rel,
                 {
-                    "name": root.name if rel == "" else Path(rel).name,
+                    "name": "Media Library" if rel == "" else Path(rel).name,
                     "child_dirs": [],
                     "videos": [],
                 },

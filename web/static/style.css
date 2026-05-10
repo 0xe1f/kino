@@ -370,9 +370,9 @@ a.menu-item {
 }
 
 .thumb-sm {
-  width: 96px;
-  height: 54px;
-  flex: 0 0 96px;
+  width: 128px;
+  height: 72px;
+  flex: 0 0 128px;
 }
 
 .row-prefix {

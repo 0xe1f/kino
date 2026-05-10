@@ -107,15 +107,23 @@ def inject_template_globals():
 @app.route("/")
 def index():
     user = g.get("user")
-    all_top = playlists.top_level(user)
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f_top = ex.submit(playlists.top_level, user)
+        f_has_videos = ex.submit(videos.exists_any)
+        all_top = f_top.result()
+        has_videos = f_has_videos.result()
     system_playlists = [p for p in all_top if p.get("owner_type") == "system"]
     user_playlists = [p for p in all_top if p.get("owner_type") == "user"]
-    has_videos = videos.exists_any()
+    user_playlist_counts = (
+        playlists.count_items_by_type_batch([p["_id"] for p in user_playlists])
+        if user_playlists else {}
+    )
     return render_template(
         "index.html",
         user=user,
         system_playlists=system_playlists,
         user_playlists=user_playlists,
+        user_playlist_counts=user_playlist_counts,
         has_videos=has_videos,
     )
 
@@ -257,19 +265,6 @@ def _render_library_section(user: dict[str, Any], section: str):
             "next_bookmark": next_bookmark or "",
             "next_start": 0,
         }
-    elif section == "playlists":
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            f_page = ex.submit(playlists.list_custom_for_user_page, user, None, PAGE_SIZE)
-            f_total = ex.submit(playlists.count_custom_for_user, user)
-            page_playlists, next_bookmark = f_page.result()
-            total = f_total.result()
-        content = {
-            "playlists": page_playlists,
-            "total": total,
-            "has_more": len(page_playlists) == PAGE_SIZE,
-            "next_bookmark": next_bookmark or "",
-            "next_start": 0,
-        }
     elif section == "favorites":
         favorites = playlists.ensure_builtin(user, "favorites")
         with ThreadPoolExecutor(max_workers=2) as ex:
@@ -315,12 +310,6 @@ def _render_library_section(user: dict[str, Any], section: str):
 @login_required
 def history_page():
     return _render_library_section(g.user, "history")
-
-
-@app.route("/playlists")
-@login_required
-def playlists_page():
-    return _render_library_section(g.user, "playlists")
 
 
 @app.route("/favorites")
@@ -434,6 +423,7 @@ def playlist_view(playlist_id: str):
             playlist_owner=playlists.owner_username(playlist),
             context_playlist_id=pid,
             context_playlist_removable=context_playlist_removable,
+            remove_only_menu=bool(context_playlist_removable),
         )
     raw_items = playlists.playlist_type_items(pid)
     items = _enrich_subplaylist_items(raw_items, user)
@@ -448,6 +438,7 @@ def playlist_view(playlist_id: str):
         playlist_owner=playlists.owner_username(playlist),
         context_playlist_id=pid,
         context_playlist_removable=context_playlist_removable,
+        remove_only_menu=bool(context_playlist_removable),
     )
 
 
@@ -568,13 +559,15 @@ def api_playlist_items(playlist_id: str):
     start = request.args.get("start", 0, type=int)
     items, next_bookmark = playlists.items_page(pid, bookmark or None, start, PAGE_SIZE)
     next_start = start + len(items)
+    removable = playlists.removable_doc_for_user(user, playlist)
     html = render_template(
         "_playlist_items.html",
         items=items,
         playlist_id=pid,
         user=user,
         context_playlist_id=pid,
-        context_playlist_removable=playlists.removable_doc_for_user(user, playlist),
+        context_playlist_removable=removable,
+        remove_only_menu=bool(removable),
     )
     return jsonify({
         "html": html,
@@ -618,19 +611,6 @@ def api_history_items():
         "next_start": 0,
     })
 
-
-@app.route("/api/library/playlists/items")
-@login_required
-def api_library_playlists_items():
-    bookmark = request.args.get("bookmark") or None
-    page_playlists, next_bookmark = playlists.list_custom_for_user_page(g.user, bookmark, PAGE_SIZE)
-    html = render_template("_custom_playlists.html", playlists=page_playlists)
-    return jsonify({
-        "html": html,
-        "has_more": len(page_playlists) == PAGE_SIZE,
-        "next_bookmark": next_bookmark or "",
-        "next_start": 0,
-    })
 
 
 # ---------------------------------------------------------------------------
@@ -731,6 +711,8 @@ def api_video_add_to_playlist(video_id: str):
         return jsonify({"error": "playlist_id or new_playlist_name is required"}), 400
 
     if new_playlist_name:
+        if playlists.name_taken_for_user(user["user_id"], new_playlist_name):
+            return jsonify({"error": "A playlist with that name already exists"}), 409
         playlist = playlists.create_user_playlist(
             user,
             name=new_playlist_name,
@@ -750,6 +732,7 @@ def api_video_add_to_playlist(video_id: str):
         return jsonify({"error": "Video is already part of the playlist"}), 409
 
     playlist_items.add(playlist_id, "video", vid)
+    users.update(user, last_playlist_id=playlist_id)
     return jsonify({"ok": True, "playlist_id": playlist_id})
 
 
@@ -788,9 +771,24 @@ def api_user_playlists():
             "playlists": [
                 {"playlist_id": p["_id"], "name": p.get("name", "Untitled")}
                 for p in user_playlists
-            ]
+            ],
+            "last_playlist_id": g.user.get("last_playlist_id"),
         }
     )
+
+
+@app.route("/api/user/playlists/name-check", methods=["GET"])
+@api_login_required
+def api_user_playlist_name_check():
+    user = g.user
+    name = (request.args.get("name") or "").strip()
+    exclude_id = request.args.get("exclude_id") or None
+    if not name:
+        return jsonify({"available": False, "reason": "Name is required"})
+    taken = playlists.name_taken_for_user(user["user_id"], name, exclude_playlist_id=exclude_id)
+    if taken:
+        return jsonify({"available": False, "reason": "A playlist with that name already exists"})
+    return jsonify({"available": True})
 
 
 @app.route("/api/playlist", methods=["POST"])
@@ -805,6 +803,9 @@ def api_playlist_create():
 
     if parent_playlist_id:
         return jsonify({"error": "user playlists must be top-level"}), 400
+
+    if playlists.name_taken_for_user(user["user_id"], name):
+        return jsonify({"error": "A playlist with that name already exists"}), 409
 
     playlist = playlists.create_user_playlist(user, name=name)
     return jsonify({"ok": True, "playlist_id": playlist["_id"]})
@@ -824,6 +825,9 @@ def api_playlist_rename(playlist_id: str):
     name = (request.json or {}).get("name", "").strip()
     if not name:
         return jsonify({"error": "name is required"}), 400
+
+    if playlists.name_taken_for_user(user["user_id"], name, exclude_playlist_id=pid):
+        return jsonify({"error": "A playlist with that name already exists"}), 409
 
     playlist["name"] = name
     playlist["updated_at"] = now_iso()
@@ -959,6 +963,7 @@ def _startup() -> None:
     db.query_view("kino", "item_count_by_playlist", keys=[], group=True)
     db.query_view("kino", "playlist_count_by_owner", keys=[], group=True)
     db.query_view_range("kino", "playlist_items_by_playlist_type", startkey=None, endkey=None, limit=1)
+    db.query_view("kino", "playlist_names_by_owner", keys=[], group=False)
     run_phase3_migration()
     app.logger.info("Startup complete")
 

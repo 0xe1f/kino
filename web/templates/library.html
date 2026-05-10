@@ -41,24 +41,6 @@
         {% else %}
           <p class="muted">No playback history yet.</p>
         {% endif %}
-      {% elif library_section == "playlists" %}
-        <h1>Your Playlists <span class="muted item-count">{{ total }} items</span></h1>
-        {% if playlists %}
-          <ul class="list">
-            {% include "_custom_playlists.html" %}
-          </ul>
-          {% if has_more %}
-            <button class="load-more-btn"
-                    data-load-more
-                    data-url="{{ url_for('api_library_playlists_items') }}"
-                    data-bookmark="{{ next_bookmark }}"
-                    data-start="{{ next_start }}">
-              Load more
-            </button>
-          {% endif %}
-        {% else %}
-          <p class="muted">No custom playlists yet.</p>
-        {% endif %}
       {% else %}
         <h1>{{ playlist.name }} <span class="muted item-count">{{ total }} items</span></h1>
         {% if items or has_more %}

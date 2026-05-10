@@ -341,6 +341,25 @@ class PlaylistDAO:
         if playlist:
             self._db.delete(playlist)
 
+    def name_taken_for_user(
+        self,
+        user_id: str,
+        name: str,
+        exclude_playlist_id: str | None = None,
+    ) -> bool:
+        normalized = name.strip().lower()
+        for info in BUILTIN_PLAYLISTS.values():
+            if info["name"].strip().lower() == normalized:
+                return True
+        rows = self._db.query_view(
+            "kino", "playlist_names_by_owner", keys=[[user_id, normalized]]
+        )
+        for row in rows:
+            if exclude_playlist_id and row.get("id") == exclude_playlist_id:
+                continue
+            return True
+        return False
+
     def create_user_playlist(
         self,
         user: dict[str, Any],

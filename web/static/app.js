@@ -430,6 +430,32 @@ function setupVideoNavInterception() {
   });
 }
 
+let lastPlaylist = null;
+
+function updateQuickAddButtons() {
+  document.querySelectorAll("[data-action='quick-add-to-playlist']").forEach((btn) => {
+    if (lastPlaylist) {
+      btn.textContent = `Add to ${lastPlaylist.name}`;
+      btn.dataset.playlistId = lastPlaylist.id;
+      btn.classList.remove("hidden");
+    } else {
+      btn.classList.add("hidden");
+    }
+  });
+}
+
+async function fetchLastPlaylist() {
+  try {
+    const result = await requestJSON("/api/user/playlists");
+    const lastId = result.last_playlist_id;
+    const match = lastId
+      ? (result.playlists || []).find((p) => p.playlist_id === lastId)
+      : null;
+    lastPlaylist = match ? { id: match.playlist_id, name: match.name } : null;
+    updateQuickAddButtons();
+  } catch (_err) {}
+}
+
 function setupVideoRowActions() {
   if (!isAuthenticatedUser()) return;
   const dialog = document.getElementById("playlist-dialog");
@@ -445,6 +471,7 @@ function setupVideoRowActions() {
   const populatePlaylists = async () => {
     if (!select) return;
     const result = await requestJSON("/api/user/playlists");
+    const lastId = result.last_playlist_id;
     select.innerHTML = "<option value=''>Select a playlist...</option>";
     (result.playlists || []).forEach((playlist) => {
       const option = document.createElement("option");
@@ -452,7 +479,51 @@ function setupVideoRowActions() {
       option.textContent = playlist.name;
       select.appendChild(option);
     });
+    if (lastId) {
+      select.value = lastId;
+    }
+    const match = lastId
+      ? (result.playlists || []).find((p) => p.playlist_id === lastId)
+      : null;
+    lastPlaylist = match ? { id: match.playlist_id, name: match.name } : null;
+    updateQuickAddButtons();
   };
+
+  const nameFeedback = document.getElementById("new-playlist-name-feedback");
+  let nameCheckTimer = null;
+
+  const setNameFeedback = (message, isError) => {
+    if (!nameFeedback) return;
+    nameFeedback.textContent = message;
+    nameFeedback.style.color = isError ? "var(--color-danger, red)" : "";
+    if (submitButton) submitButton.disabled = isError;
+  };
+
+  if (newPlaylistInput) {
+    newPlaylistInput.addEventListener("input", () => {
+      clearTimeout(nameCheckTimer);
+      const val = newPlaylistInput.value.trim();
+      if (!val) {
+        setNameFeedback("", false);
+        return;
+      }
+      nameCheckTimer = setTimeout(async () => {
+        try {
+          const result = await requestJSON(
+            `/api/user/playlists/name-check?name=${encodeURIComponent(val)}`
+          );
+          if (newPlaylistInput.value.trim() !== val) return;
+          if (result.available) {
+            setNameFeedback("", false);
+          } else {
+            setNameFeedback(result.reason || "Name already taken", true);
+          }
+        } catch (_err) {
+          setNameFeedback("", false);
+        }
+      }, 400);
+    });
+  }
 
   const closeAllMenus = () => {
     document.querySelectorAll(".row-menu").forEach((menu) => menu.classList.add("hidden"));
@@ -503,9 +574,24 @@ function setupVideoRowActions() {
           showToast(result.added ? "Added to Favorites" : "Removed from Favorites");
           return;
         }
+        if (action === "quick-add-to-playlist") {
+          const playlistId = button.dataset.playlistId;
+          if (!playlistId) return;
+          try {
+            await requestJSON(`/api/video/${encodeURIComponent(videoId)}/add-to-playlist`, {
+              method: "POST",
+              body: JSON.stringify({ playlist_id: playlistId }),
+            });
+            showToast("Saved to playlist");
+          } catch (err) {
+            showToast(err.message || "Failed to add to playlist");
+          }
+          return;
+        }
         if (action === "add-to-playlist" && dialog && submitButton) {
           await populatePlaylists();
           if (newPlaylistInput) newPlaylistInput.value = "";
+          setNameFeedback("", false);
           submitButton.onclick = async (e) => {
             e.preventDefault();
             const payload = {};
@@ -577,7 +663,7 @@ function setupVideoRowActions() {
         showToast("Removed from playlist");
 
         if (!stillHasRows) {
-          window.location.href = "/playlists";
+          window.location.href = "/history";
           return;
         }
         if (isCurrentVideo && fallbackLink?.href) {
@@ -673,3 +759,4 @@ setupLocalDates();
 setupLoadMore();
 setupNavItems();
 setupVideoNavInterception();
+if (isAuthenticatedUser()) fetchLastPlaylist();

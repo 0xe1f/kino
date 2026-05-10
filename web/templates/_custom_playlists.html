@@ -15,5 +15,17 @@
 #}
 
 {% for playlist in playlists %}
-  <li><a class="row-link" href="{{ url_for('playlist_view', playlist_id=playlist._id) }}">{{ playlist.name }}</a></li>
+  <li>
+    <a class="row-link" href="{{ url_for('playlist_view', playlist_id=playlist._id) }}">
+      {% set playlist_thumb = thumbnail_url(playlist) %}
+      {% if playlist_thumb %}
+        <img src="{{ playlist_thumb }}" alt="{{ playlist.name }} thumbnail" class="thumb thumb-sm" />
+      {% endif %}
+      <span>{{ playlist.name }}</span>
+      {% set owner_name = owner_username(playlist) %}
+      {% if owner_name %}
+        <span class="tag">{{ owner_name }}</span>
+      {% endif %}
+    </a>
+  </li>
 {% endfor %}

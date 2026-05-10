@@ -33,11 +33,16 @@
     <div class="row-actions">
       <button class="row-icon row-menu-trigger" title="More"><span class="material-symbols-rounded">more_vert</span></button>
       <div class="row-menu hidden">
-        <button class="row-menu-item" data-action="save-favorite">Save to Favorites</button>
-        <button class="row-menu-item" data-action="save-watch-later">Save to Watch Later</button>
-        <button class="row-menu-item" data-action="add-to-playlist">Add to playlist</button>
-        {% if context_playlist_removable %}
+        {% if remove_only_menu and context_playlist_removable %}
           <button class="row-menu-item danger-text" data-action="remove-from-playlist">Remove from playlist</button>
+        {% else %}
+          <button class="row-menu-item" data-action="save-favorite">Save to Favorites</button>
+          <button class="row-menu-item" data-action="save-watch-later">Save to Watch Later</button>
+          <button class="row-menu-item" data-action="add-to-playlist">Add to playlist</button>
+          <button class="row-menu-item hidden" data-action="quick-add-to-playlist">Add to …</button>
+          {% if context_playlist_removable %}
+            <button class="row-menu-item danger-text" data-action="remove-from-playlist">Remove from playlist</button>
+          {% endif %}
         {% endif %}
       </div>
     </div>

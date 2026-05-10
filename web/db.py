@@ -263,6 +263,15 @@ class KinoDB:
             "}"
         )
 
+        playlist_names_by_owner_map = (
+            "function(doc) {"
+            " if (doc.type === 'playlist' && doc.owner_type === 'user' && doc.owner_id"
+            "     && doc.name && !doc.builtin_kind && !doc.hidden_from_lists) {"
+            "  emit([doc.owner_id, doc.name.trim().toLowerCase()], null);"
+            " }"
+            "}"
+        )
+
         ddoc: dict[str, Any] = {
             "_id": ddoc_id,
             "views": {
@@ -292,6 +301,9 @@ class KinoDB:
                 },
                 "playlist_items_by_playlist_type": {
                     "map": playlist_items_by_playlist_type_map,
+                },
+                "playlist_names_by_owner": {
+                    "map": playlist_names_by_owner_map,
                 },
             },
         }
