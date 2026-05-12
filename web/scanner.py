@@ -216,8 +216,10 @@ class ScannerManager:
                         },
                     )
 
-        for video_doc in db.find_many("video", source="scanner"):
-            if video_doc.get("relative_path") not in found_paths:
+        stale_rows = db.query_view("kino", "videos_by_source", keys=["scanner"], include_docs=True)
+        for row in stale_rows:
+            video_doc = row.get("doc")
+            if video_doc and video_doc.get("relative_path") not in found_paths:
                 db.delete(video_doc)
 
         return {f"video:{sha1_text(path)}" for path in found_paths}
@@ -227,11 +229,23 @@ class ScannerManager:
         tree: dict[str, Any],
         valid_video_ids: set[str],
     ) -> None:
-        for item in db.find_many("playlist_item"):
-            if item.get("owner_type") == "system":
-                db.delete(item)
-        for playlist in db.find_many("playlist", owner_type="system"):
-            db.delete(playlist)
+        item_rows = db.query_view("kino", "playlist_items_by_owner_type", keys=["system"], include_docs=True)
+        items_to_delete = [
+            {"_id": r["doc"]["_id"], "_rev": r["doc"]["_rev"], "_deleted": True}
+            for r in item_rows if r.get("doc")
+        ]
+        db.bulk_save(items_to_delete)
+
+        playlist_rows = db.query_view_range(
+            "kino", "playlists_by_owner",
+            startkey=["system", None], endkey=["system", {}],
+            include_docs=True,
+        )
+        playlists_to_delete = [
+            {"_id": r["doc"]["_id"], "_rev": r["doc"]["_rev"], "_deleted": True}
+            for r in playlist_rows if r.get("doc")
+        ]
+        db.bulk_save(playlists_to_delete)
 
         def _has_videos(rel: str, memo: dict[str, bool]) -> bool:
             if rel in memo:

@@ -954,16 +954,23 @@ def _startup() -> None:
     if stale_lock:
         app.logger.info("Clearing stale scan lock from previous run")
         db.delete(stale_lock)
-    db.ensure_indexes()
     db.ensure_design_docs()
+    # Warm existing views
     db.query_view("kino", "item_counts_by_playlist", keys=[], group=True)
     db.query_view("kino", "first_video_by_playlist", keys=[], group=True)
     db.query_view("kino", "last_watched_by_user_playlist", keys=[], group=True)
     db.query_view("kino", "history_by_user_date", keys=[], group=True)
-    db.query_view("kino", "item_count_by_playlist", keys=[], group=True)
     db.query_view("kino", "playlist_count_by_owner", keys=[], group=True)
     db.query_view_range("kino", "playlist_items_by_playlist_type", startkey=None, endkey=None, limit=1)
     db.query_view("kino", "playlist_names_by_owner", keys=[], group=False)
+    # Warm new views
+    db.query_view_range("kino", "docs_by_type", startkey=None, endkey=None, limit=1)
+    db.query_view("kino", "users_by_email", keys=[], reduce=False)
+    db.query_view("kino", "users_by_username", keys=[], reduce=False)
+    db.query_view("kino", "videos_by_source", keys=[], reduce=False)
+    db.query_view_range("kino", "playlists_by_owner", startkey=None, endkey=None, limit=1)
+    db.query_view_range("kino", "playlists_by_parent", startkey=None, endkey=None, limit=1)
+    db.query_view("kino", "playlist_items_by_owner_type", keys=[], reduce=False)
     run_phase3_migration()
     app.logger.info("Startup complete")
 

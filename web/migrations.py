@@ -37,8 +37,13 @@ def run_phase3_migration() -> None:
             _migration_done = True
             return
 
+        user_rows = db.query_view_range(
+            "kino", "docs_by_type",
+            startkey=["user", None], endkey=["user", {}],
+            include_docs=True,
+        )
         users = sorted(
-            db.find_many("user"),
+            [r["doc"] for r in user_rows if r.get("doc")],
             key=lambda u: (u.get("created_at", ""), u.get("user_id", "")),
         )
         used_usernames: set[str] = {
@@ -72,8 +77,14 @@ def run_phase3_migration() -> None:
                 users_updated += 1
 
         videos_updated = 0
-        for video_doc in db.find_many("video"):
-            if "dislikes" not in video_doc:
+        video_rows = db.query_view_range(
+            "kino", "docs_by_type",
+            startkey=["video", None], endkey=["video", {}],
+            include_docs=True,
+        )
+        for row in video_rows:
+            video_doc = row.get("doc")
+            if not video_doc or "dislikes" not in video_doc:
                 continue
             video_doc.pop("dislikes", None)
             video_doc["updated_at"] = now_iso()
@@ -81,8 +92,14 @@ def run_phase3_migration() -> None:
             videos_updated += 1
 
         reactions_deleted = 0
-        for reaction_doc in db.find_many("reaction"):
-            if reaction_doc.get("value") == "like":
+        reaction_rows = db.query_view_range(
+            "kino", "docs_by_type",
+            startkey=["reaction", None], endkey=["reaction", {}],
+            include_docs=True,
+        )
+        for row in reaction_rows:
+            reaction_doc = row.get("doc")
+            if not reaction_doc or reaction_doc.get("value") == "like":
                 continue
             db.delete(reaction_doc)
             reactions_deleted += 1

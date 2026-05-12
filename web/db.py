@@ -59,8 +59,6 @@ class KinoDB:
     def delete(self, doc: dict[str, Any]) -> None:
         self.db.delete(doc)
 
-    # --- Mango query helpers ---
-
     def get_many(self, ids: list[str]) -> dict[str, dict[str, Any]]:
         """Fetch multiple documents by ID in a single request. Returns {id: doc}."""
         if not ids:
@@ -86,40 +84,6 @@ class KinoDB:
             if result.get("rev"):
                 doc["_rev"] = result["rev"]
 
-    def find_by_mango(
-        self,
-        selector: dict[str, Any],
-        limit: int = 25000,
-    ) -> list[dict[str, Any]]:
-        url = f"{self.url.rstrip('/')}/{self.db_name}/_find"
-        resp = _http.post(url, json={"selector": selector, "limit": limit}, timeout=30)
-        resp.raise_for_status()
-        return resp.json().get("docs", [])
-
-    def find_many(self, doc_type: str, **filters: Any) -> list[dict[str, Any]]:
-        selector: dict[str, Any] = {"type": doc_type, **filters}
-        return self.find_by_mango(selector)
-
-    def find_page(
-        self,
-        selector: dict[str, Any],
-        sort: list[dict[str, str]],
-        limit: int,
-        bookmark: str | None = None,
-        fields: list[str] | None = None,
-    ) -> tuple[list[dict[str, Any]], str | None]:
-        """Bookmark-based paginated query. Returns (docs, next_bookmark)."""
-        body: dict[str, Any] = {"selector": selector, "sort": sort, "limit": limit}
-        if bookmark:
-            body["bookmark"] = bookmark
-        if fields:
-            body["fields"] = fields
-        url = f"{self.url.rstrip('/')}/{self.db_name}/_find"
-        resp = _http.post(url, json=body, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("docs", []), data.get("bookmark")
-
     def query_view(
         self,
         ddoc: str,
@@ -127,6 +91,7 @@ class KinoDB:
         keys: list | None = None,
         group: bool = False,
         reduce: bool | None = None,
+        include_docs: bool = False,
     ) -> list[dict[str, Any]]:
         """Multi-key or grouped reduce query. Returns the rows list."""
         url = f"{self.url.rstrip('/')}/{self.db_name}/_design/{ddoc}/_view/{view}"
@@ -137,6 +102,8 @@ class KinoDB:
             body["group"] = True
         if reduce is not None:
             body["reduce"] = reduce
+        if include_docs:
+            body["include_docs"] = True
         resp = _http.post(url, json=body, timeout=30)
         resp.raise_for_status()
         return resp.json().get("rows", [])
@@ -153,6 +120,7 @@ class KinoDB:
         skip: int = 0,
         reduce: bool | None = None,
         group_level: int | None = None,
+        include_docs: bool = False,
     ) -> list[dict[str, Any]]:
         """Range query against a view. Supports cursor pagination via startkey_docid."""
         url = f"{self.url.rstrip('/')}/{self.db_name}/_design/{ddoc}/_view/{view}"
@@ -174,6 +142,8 @@ class KinoDB:
         if group_level is not None:
             body["group_level"] = group_level
             body["group"] = True
+        if include_docs:
+            body["include_docs"] = True
         resp = _http.post(url, json=body, timeout=30)
         resp.raise_for_status()
         return resp.json().get("rows", [])
@@ -238,14 +208,6 @@ class KinoDB:
             "}"
         )
 
-        item_count_by_playlist_map = (
-            "function(doc) {"
-            " if (doc.type === 'playlist_item' && doc.playlist_id) {"
-            "  emit(doc.playlist_id, null);"
-            " }"
-            "}"
-        )
-
         playlist_count_by_owner_map = (
             "function(doc) {"
             " if (doc.type === 'playlist' && doc.owner_type && doc.owner_id"
@@ -272,6 +234,64 @@ class KinoDB:
             "}"
         )
 
+        # --- New views ---
+
+        docs_by_type_map = (
+            "function(doc) {"
+            " if (doc.type) {"
+            "  emit([doc.type, doc.user_id || null], null);"
+            " }"
+            "}"
+        )
+
+        users_by_email_map = (
+            "function(doc) {"
+            " if (doc.type === 'user' && doc.email) {"
+            "  emit(doc.email, null);"
+            " }"
+            "}"
+        )
+
+        users_by_username_map = (
+            "function(doc) {"
+            " if (doc.type === 'user' && doc.username) {"
+            "  emit(doc.username, null);"
+            " }"
+            "}"
+        )
+
+        videos_by_source_map = (
+            "function(doc) {"
+            " if (doc.type === 'video' && doc.source) {"
+            "  emit(doc.source, null);"
+            " }"
+            "}"
+        )
+
+        playlists_by_owner_map = (
+            "function(doc) {"
+            " if (doc.type === 'playlist' && doc.owner_type) {"
+            "  emit([doc.owner_type, doc.owner_id || null], null);"
+            " }"
+            "}"
+        )
+
+        playlists_by_parent_map = (
+            "function(doc) {"
+            " if (doc.type === 'playlist' && doc.parent_playlist_id) {"
+            "  emit(doc.parent_playlist_id, null);"
+            " }"
+            "}"
+        )
+
+        playlist_items_by_owner_type_map = (
+            "function(doc) {"
+            " if (doc.type === 'playlist_item' && doc.owner_type) {"
+            "  emit(doc.owner_type, null);"
+            " }"
+            "}"
+        )
+
         ddoc: dict[str, Any] = {
             "_id": ddoc_id,
             "views": {
@@ -291,10 +311,6 @@ class KinoDB:
                     "map": history_by_user_date_map,
                     "reduce": "_count",
                 },
-                "item_count_by_playlist": {
-                    "map": item_count_by_playlist_map,
-                    "reduce": "_count",
-                },
                 "playlist_count_by_owner": {
                     "map": playlist_count_by_owner_map,
                     "reduce": "_count",
@@ -305,6 +321,27 @@ class KinoDB:
                 "playlist_names_by_owner": {
                     "map": playlist_names_by_owner_map,
                 },
+                "docs_by_type": {
+                    "map": docs_by_type_map,
+                },
+                "users_by_email": {
+                    "map": users_by_email_map,
+                },
+                "users_by_username": {
+                    "map": users_by_username_map,
+                },
+                "videos_by_source": {
+                    "map": videos_by_source_map,
+                },
+                "playlists_by_owner": {
+                    "map": playlists_by_owner_map,
+                },
+                "playlists_by_parent": {
+                    "map": playlists_by_parent_map,
+                },
+                "playlist_items_by_owner_type": {
+                    "map": playlist_items_by_owner_type_map,
+                },
             },
         }
 
@@ -313,40 +350,6 @@ class KinoDB:
             ddoc["_rev"] = existing["_rev"]
         resp = _http.put(url, json=ddoc, timeout=10)
         resp.raise_for_status()
-
-    def find_one(self, doc_type: str, **filters: Any) -> dict[str, Any] | None:
-        selector: dict[str, Any] = {"type": doc_type, **filters}
-        docs = self.find_by_mango(selector, limit=1)
-        return docs[0] if docs else None
-
-    def ensure_indexes(self) -> None:
-        url = f"{self.url.rstrip('/')}/{self.db_name}/_index"
-        index_groups = [
-            ["type"],
-            ["type", "user_id"],
-            ["type", "owner_id"],
-            ["type", "owner_type"],
-            ["type", "owner_type", "owner_id"],
-            ["type", "playlist_id"],
-            ["type", "playlist_id", "position"],
-            ["type", "email"],
-            ["type", "video_id"],
-            ["type", "source"],
-            ["type", "builtin_kind"],
-            ["type", "parent_playlist_id"],
-            ["type", "username"],
-            ["type", "user_id", "playlist_id"],
-            ["type", "owner_type", "owner_id", "name"],
-        ]
-        for fields in index_groups:
-            try:
-                _http.post(
-                    url,
-                    json={"index": {"fields": fields}},
-                    timeout=10,
-                )
-            except Exception:
-                pass
 
 
 db = KinoDB(

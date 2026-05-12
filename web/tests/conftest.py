@@ -38,39 +38,57 @@ def make_video(video_id: str) -> dict:
     }
 
 
+def _make_view_row(item: dict, value: str | None = None) -> dict:
+    """Wrap a playlist_item doc in a view row as playlist_items_by_playlist_type returns."""
+    return {
+        "key": [item["playlist_id"], item.get("item_type", "video"), item.get("position", 0)],
+        "id": item["_id"],
+        "value": value or item.get("item_id"),
+        "doc": item,
+    }
+
+
 class FakeDB:
     """Minimal KinoDB stand-in for DAO unit tests."""
 
     def __init__(
         self,
-        page_docs: list | None = None,
+        view_range_rows: list | None = None,
+        view_range_rows_seq: list[list] | None = None,
         get_many_result: dict | None = None,
-        bookmarks: list[str | None] | None = None,
+        cursors: list[str | None] | None = None,
         query_view_rows: list | None = None,
     ):
-        self._page_docs = page_docs or []
+        # view_range_rows_seq: sequence of row lists returned on successive calls
+        self._view_range_rows_seq: list[list] = view_range_rows_seq or (
+            [view_range_rows] if view_range_rows is not None else [[]]
+        )
+        self._view_range_call_idx = 0
         self._get_many_result = get_many_result or {}
-        self._bookmarks = bookmarks if bookmarks is not None else [None]
-        self._bm_index = 0
+        self._cursors = cursors if cursors is not None else [None]
+        self._cursor_idx = 0
         self._query_view_rows = query_view_rows or []
-        self.find_page_calls: list[dict] = []
+        self.query_view_range_calls: list[dict] = []
         self.get_many_calls: list[list] = []
         self.query_view_calls: list[dict] = []
 
-    def find_page(self, selector, sort, limit, bookmark=None, fields=None):
-        self.find_page_calls.append(
-            {"selector": selector, "sort": sort, "limit": limit,
-             "bookmark": bookmark, "fields": fields}
-        )
-        bm = self._bookmarks[min(self._bm_index, len(self._bookmarks) - 1)]
-        self._bm_index += 1
-        docs = self._page_docs if fields is None else [{"_id": d["_id"]} for d in self._page_docs]
-        return docs, bm
+    def query_view_range(self, ddoc, view, startkey=None, endkey=None,
+                         descending=False, limit=None, startkey_docid=None,
+                         skip=0, reduce=None, group_level=None, include_docs=False):
+        self.query_view_range_calls.append({
+            "ddoc": ddoc, "view": view, "startkey": startkey, "endkey": endkey,
+            "limit": limit, "startkey_docid": startkey_docid, "skip": skip,
+            "reduce": reduce, "group_level": group_level, "include_docs": include_docs,
+        })
+        idx = min(self._view_range_call_idx, len(self._view_range_rows_seq) - 1)
+        self._view_range_call_idx += 1
+        return self._view_range_rows_seq[idx]
 
     def get_many(self, ids: list[str]) -> dict:
         self.get_many_calls.append(list(ids))
         return {k: v for k, v in self._get_many_result.items() if k in ids}
 
-    def query_view(self, ddoc, view, keys=None, group=False, reduce=None):
-        self.query_view_calls.append({"ddoc": ddoc, "view": view, "keys": keys})
+    def query_view(self, ddoc, view, keys=None, group=False, reduce=None, include_docs=False):
+        self.query_view_calls.append({"ddoc": ddoc, "view": view, "keys": keys,
+                                      "include_docs": include_docs})
         return self._query_view_rows

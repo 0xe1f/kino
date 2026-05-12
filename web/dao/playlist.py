@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import uuid
 from typing import Any
 
 from db import KinoDB
 from utils import BUILTIN_PLAYLISTS, now_iso
-
 
 
 class PlaylistDAO:
@@ -30,10 +30,20 @@ class PlaylistDAO:
         return self._db.get(playlist_id)
 
     def list_all(self) -> list[dict[str, Any]]:
-        return self._db.find_many("playlist")
+        rows = self._db.query_view_range(
+            "kino", "playlists_by_owner",
+            startkey=[None, None], endkey=[{}, {}],
+            include_docs=True,
+        )
+        return [row["doc"] for row in rows if row.get("doc")]
 
     def list_by_owner_type(self, owner_type: str) -> list[dict[str, Any]]:
-        return self._db.find_many("playlist", owner_type=owner_type)
+        rows = self._db.query_view_range(
+            "kino", "playlists_by_owner",
+            startkey=[owner_type, None], endkey=[owner_type, {}],
+            include_docs=True,
+        )
+        return [row["doc"] for row in rows if row.get("doc")]
 
     def save(self, doc: dict[str, Any]) -> dict[str, Any]:
         return self._db.save(doc)
@@ -119,13 +129,17 @@ class PlaylistDAO:
         return self._db.save(doc)
 
     def list_custom_for_user(self, user: dict[str, Any]) -> list[dict[str, Any]]:
-        all_playlists = self._db.find_many(
-            "playlist", owner_type="user", owner_id=user["user_id"]
+        rows = self._db.query_view_range(
+            "kino", "playlists_by_owner",
+            startkey=["user", user["user_id"]], endkey=["user", user["user_id"]],
+            include_docs=True,
         )
         filtered = [
-            p
-            for p in all_playlists
-            if not self.is_builtin(p) and not p.get("hidden_from_lists")
+            row["doc"]
+            for row in rows
+            if row.get("doc")
+            and not self.is_builtin(row["doc"])
+            and not row["doc"].get("hidden_from_lists")
         ]
         return sorted(filtered, key=lambda p: p.get("name", "").lower())
 
@@ -138,21 +152,40 @@ class PlaylistDAO:
             return states
         for kind in states:
             playlist = self.ensure_builtin(user, kind)
-            for item in self._db.find_many("playlist_item", playlist_id=playlist["_id"]):
-                if item.get("item_type") == "video":
-                    states[kind].add(item.get("item_id"))
+            rows = self._db.query_view_range(
+                "kino", "playlist_items_by_playlist_type",
+                startkey=[playlist["_id"], "video", None],
+                endkey=[playlist["_id"], "video", {}],
+            )
+            for row in rows:
+                if row.get("value"):
+                    states[kind].add(row["value"])
         return states
 
     def top_level(self, user: dict[str, Any] | None) -> list[dict[str, Any]]:
+        system_rows = self._db.query_view_range(
+            "kino", "playlists_by_owner",
+            startkey=["system", None], endkey=["system", {}],
+            include_docs=True,
+        )
         system = [
-            p for p in self._db.find_many("playlist", owner_type="system")
-            if not p.get("parent_playlist_id") and not p.get("hidden_from_lists")
+            row["doc"] for row in system_rows
+            if row.get("doc")
+            and not row["doc"].get("parent_playlist_id")
+            and not row["doc"].get("hidden_from_lists")
         ]
         user_top: list[dict[str, Any]] = []
         if user:
+            user_rows = self._db.query_view_range(
+                "kino", "playlists_by_owner",
+                startkey=["user", user["user_id"]], endkey=["user", user["user_id"]],
+                include_docs=True,
+            )
             user_top = [
-                p for p in self._db.find_many("playlist", owner_type="user", owner_id=user["user_id"])
-                if not p.get("parent_playlist_id") and not p.get("hidden_from_lists")
+                row["doc"] for row in user_rows
+                if row.get("doc")
+                and not row["doc"].get("parent_playlist_id")
+                and not row["doc"].get("hidden_from_lists")
             ]
         return sorted(
             system + user_top,
@@ -172,37 +205,67 @@ class PlaylistDAO:
 
     def count_items(self, playlist_id: str) -> int:
         """Lightweight total count for use in page headers. Called once on initial render only."""
-        rows = self._db.query_view("kino", "item_count_by_playlist", keys=[playlist_id], group=True)
+        rows = self._db.query_view_range(
+            "kino", "item_counts_by_playlist",
+            startkey=[playlist_id, None], endkey=[playlist_id, {}],
+            reduce=True, group_level=1,
+        )
         return rows[0]["value"] if rows else 0
 
     def items_page(
         self, playlist_id: str, bookmark: str | None, start: int, limit: int
     ) -> tuple[list[dict[str, Any]], str | None]:
-        """Returns (collected, next_bookmark). Caller infers has_more from len(collected) == limit."""
-        selector = {"type": "playlist_item", "playlist_id": playlist_id}
-        sort = [{"type": "asc"}, {"playlist_id": "asc"}, {"position": "asc"}]
-        page_items, next_bookmark = self._db.find_page(
-            selector, sort, limit=limit, bookmark=bookmark or None
+        """Returns (collected, next_bookmark). Items sorted sub-playlists first then videos,
+        each group in position order (matches items() behavior).
+        Caller infers has_more from len(collected) == limit."""
+        cursor_key: Any = [playlist_id, None, None]
+        cursor_docid: str | None = None
+        skip = 0
+        if bookmark:
+            try:
+                cursor_key, cursor_docid = json.loads(bookmark)
+                skip = 1
+            except (ValueError, TypeError):
+                pass
+
+        rows = self._db.query_view_range(
+            "kino", "playlist_items_by_playlist_type",
+            startkey=cursor_key,
+            endkey=[playlist_id, {}, {}],
+            startkey_docid=cursor_docid,
+            skip=skip,
+            limit=limit,
+            include_docs=True,
         )
-        target_ids = [item["item_id"] for item in page_items if item.get("item_id")]
+
+        target_ids = [row["value"] for row in rows if row.get("value")]
         targets = self._db.get_many(target_ids)
         collected = []
-        for i, item in enumerate(page_items):
-            target = targets.get(item.get("item_id"))
+        for i, row in enumerate(rows):
+            item = row.get("doc")
+            if not item:
+                continue
+            target = targets.get(row.get("value"))
             if target:
                 collected.append({"item": item, "target": target, "position_label": start + i + 1})
+
+        next_bookmark: str | None = None
+        if rows:
+            last = rows[-1]
+            next_bookmark = json.dumps([last["key"], last["id"]])
+
         return collected, next_bookmark
 
     def nav_metadata(
         self, playlist_id: str, current_video_id: str
     ) -> dict[str, Any]:
         """Return lightweight nav info (count, prev/next IDs) with no video doc fetches."""
-        raw_items = sorted(
-            self._db.find_many("playlist_item", playlist_id=playlist_id),
-            key=lambda item: item.get("position", 0),
+        rows = self._db.query_view_range(
+            "kino", "playlist_items_by_playlist_type",
+            startkey=[playlist_id, "video", None],
+            endkey=[playlist_id, "video", {}],
         )
-        video_items = [it for it in raw_items if it.get("item_type") == "video"]
-        ids = [it["item_id"] for it in video_items]
+        ids = [row["value"] for row in rows if row.get("value")]
         total = len(ids)
 
         try:
@@ -219,16 +282,20 @@ class PlaylistDAO:
 
     def video_items_all(self, playlist_id: str) -> list[dict[str, Any]]:
         """Return all video items in a playlist, hydrated, in position order."""
-        raw_items = sorted(
-            self._db.find_many("playlist_item", playlist_id=playlist_id),
-            key=lambda item: item.get("position", 0),
+        rows = self._db.query_view_range(
+            "kino", "playlist_items_by_playlist_type",
+            startkey=[playlist_id, "video", None],
+            endkey=[playlist_id, "video", {}],
+            include_docs=True,
         )
-        video_items = [it for it in raw_items if it.get("item_type") == "video"]
-        target_ids = [it["item_id"] for it in video_items if it.get("item_id")]
+        target_ids = [row["value"] for row in rows if row.get("value")]
         targets = self._db.get_many(target_ids)
         collected = []
-        for i, item in enumerate(video_items):
-            target = targets.get(item.get("item_id"))
+        for i, row in enumerate(rows):
+            item = row.get("doc")
+            if not item:
+                continue
+            target = targets.get(row.get("value"))
             if target:
                 collected.append({"item": item, "target": target, "position_label": i + 1})
         return collected
@@ -244,29 +311,49 @@ class PlaylistDAO:
     def list_custom_for_user_page(
         self, user: dict[str, Any], bookmark: str | None, limit: int
     ) -> tuple[list[dict[str, Any]], str | None]:
-        selector = {
-            "type": "playlist",
-            "owner_type": "user",
-            "owner_id": user["user_id"],
-            "builtin_kind": {"$exists": False},
-            "hidden_from_lists": {"$ne": True},
-        }
-        sort = [{"type": "asc"}, {"owner_type": "asc"}, {"owner_id": "asc"}, {"name": "asc"}]
-        docs, next_bookmark = self._db.find_page(
-            selector, sort, limit=limit, bookmark=bookmark or None
+        cursor_key: Any = [user["user_id"], None]
+        cursor_docid: str | None = None
+        skip = 0
+        if bookmark:
+            try:
+                cursor_key, cursor_docid = json.loads(bookmark)
+                skip = 1
+            except (ValueError, TypeError):
+                pass
+
+        rows = self._db.query_view_range(
+            "kino", "playlist_names_by_owner",
+            startkey=cursor_key,
+            endkey=[user["user_id"], {}],
+            startkey_docid=cursor_docid,
+            skip=skip,
+            limit=limit,
+            include_docs=True,
         )
+        docs = [row["doc"] for row in rows if row.get("doc")]
+
+        next_bookmark: str | None = None
+        if rows:
+            last = rows[-1]
+            next_bookmark = json.dumps([last["key"], last["id"]])
+
         return docs, next_bookmark
 
     def items(self, playlist_id: str) -> list[dict[str, Any]]:
-        raw_items = sorted(
-            self._db.find_many("playlist_item", playlist_id=playlist_id),
-            key=lambda item: item.get("position", 0),
+        rows = self._db.query_view_range(
+            "kino", "playlist_items_by_playlist_type",
+            startkey=[playlist_id, None, None],
+            endkey=[playlist_id, {}, {}],
+            include_docs=True,
         )
-        target_ids = [item["item_id"] for item in raw_items if item.get("item_id")]
+        target_ids = [row["value"] for row in rows if row.get("value")]
         targets = self._db.get_many(target_ids)
         collected = []
-        for item in raw_items:
-            target = targets.get(item.get("item_id"))
+        for row in rows:
+            item = row.get("doc")
+            if not item:
+                continue
+            target = targets.get(row.get("value"))
             if not target:
                 continue
             collected.append({"item": item, "target": target})
@@ -329,14 +416,32 @@ class PlaylistDAO:
         return result
 
     def delete_tree(self, owner_user_id: str, playlist_id: str) -> None:
-        for child in self._db.find_many("playlist", parent_playlist_id=playlist_id):
+        child_rows = self._db.query_view(
+            "kino", "playlists_by_parent",
+            keys=[playlist_id],
+            include_docs=True,
+        )
+        for row in child_rows:
+            child = row.get("doc")
             if (
-                child.get("owner_type") == "user"
+                child
+                and child.get("owner_type") == "user"
                 and child.get("owner_id") == owner_user_id
             ):
                 self.delete_tree(owner_user_id, child["_id"])
-        for item in self._db.find_many("playlist_item", playlist_id=playlist_id):
-            self._db.delete(item)
+
+        item_rows = self._db.query_view_range(
+            "kino", "playlist_items_by_playlist_type",
+            startkey=[playlist_id, None, None],
+            endkey=[playlist_id, {}, {}],
+            include_docs=True,
+        )
+        items_to_delete = [
+            {"_id": r["doc"]["_id"], "_rev": r["doc"]["_rev"], "_deleted": True}
+            for r in item_rows if r.get("doc")
+        ]
+        self._db.bulk_save(items_to_delete)
+
         playlist = self._db.get(playlist_id)
         if playlist:
             self._db.delete(playlist)
@@ -391,7 +496,13 @@ class PlaylistItemDAO:
         self._db = database
 
     def list_for_playlist(self, playlist_id: str) -> list[dict[str, Any]]:
-        return self._db.find_many("playlist_item", playlist_id=playlist_id)
+        rows = self._db.query_view_range(
+            "kino", "playlist_items_by_playlist_type",
+            startkey=[playlist_id, None, None],
+            endkey=[playlist_id, {}, {}],
+            include_docs=True,
+        )
+        return [row["doc"] for row in rows if row.get("doc")]
 
     def find_video_in_playlist(
         self,

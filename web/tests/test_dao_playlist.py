@@ -1,9 +1,11 @@
 """Tests for PlaylistDAO.items_page and count_items using a FakeDB stub."""
 
+import json
+
 import pytest
 
 from dao.playlist import PlaylistDAO
-from tests.conftest import FakeDB, make_playlist_item, make_video
+from tests.conftest import FakeDB, _make_view_row, make_playlist_item, make_video
 
 
 PAGE_SIZE = 5  # intentionally small for tests
@@ -14,21 +16,23 @@ PAGE_SIZE = 5  # intentionally small for tests
 # ---------------------------------------------------------------------------
 
 class TestItemsPage:
-    def _dao(self, items=(), videos=(), bookmarks=None):
+    def _dao(self, items=(), videos=(), cursors=None):
         items = list(items)
         videos_map = {v["_id"]: v for v in videos}
-        db = FakeDB(page_docs=items, get_many_result=videos_map, bookmarks=bookmarks or [None])
+        # Build view rows: each row carries the playlist_item doc and item_id as value
+        rows = [_make_view_row(item) for item in items]
+        db = FakeDB(view_range_rows=rows, get_many_result=videos_map, cursors=cursors or [None])
         return PlaylistDAO(db), db
 
     def test_returns_collected_and_bookmark(self):
         items = [make_playlist_item("v1"), make_playlist_item("v2")]
         videos = [make_video("v1"), make_video("v2")]
-        dao, _ = self._dao(items, videos, bookmarks=["bm_next"])
+        dao, _ = self._dao(items, videos)
 
         collected, bm = dao.items_page("pl:test", None, 0, PAGE_SIZE)
 
         assert len(collected) == 2
-        assert bm == "bm_next"
+        assert bm is not None
 
     def test_position_labels_start_at_one_for_first_page(self):
         items = [make_playlist_item(f"v{i}") for i in range(3)]
@@ -48,41 +52,52 @@ class TestItemsPage:
 
         assert [r["position_label"] for r in collected] == [26, 27]
 
-    def test_bookmark_forwarded_to_db(self):
+    def test_cursor_forwarded_to_view_range(self):
         dao, db = self._dao()
+        last_key = ["pl:test", "video", 3]
+        last_docid = "pi:v3"
+        bookmark = json.dumps([last_key, last_docid])
 
-        dao.items_page("pl:test", "cursor_xyz", start=0, limit=PAGE_SIZE)
+        dao.items_page("pl:test", bookmark, start=0, limit=PAGE_SIZE)
 
-        assert db.find_page_calls[0]["bookmark"] == "cursor_xyz"
+        call = db.query_view_range_calls[0]
+        assert call["startkey"] == last_key
+        assert call["startkey_docid"] == last_docid
+        assert call["skip"] == 1
 
-    def test_none_bookmark_stays_none(self):
+    def test_none_bookmark_uses_default_startkey(self):
         dao, db = self._dao()
 
         dao.items_page("pl:test", None, start=0, limit=PAGE_SIZE)
 
-        assert db.find_page_calls[0]["bookmark"] is None
+        call = db.query_view_range_calls[0]
+        assert call["startkey"] == ["pl:test", None, None]
+        assert call["startkey_docid"] is None
+        assert call["skip"] == 0
 
-    def test_empty_bookmark_string_treated_as_none(self):
-        """API passes '' when no cursor; DAO should convert to None for find_page."""
+    def test_empty_bookmark_string_treated_as_no_cursor(self):
+        """Empty string bookmark from API should produce default startkey."""
         dao, db = self._dao()
 
         dao.items_page("pl:test", "" or None, start=0, limit=PAGE_SIZE)
 
-        assert db.find_page_calls[0]["bookmark"] is None
+        call = db.query_view_range_calls[0]
+        assert call["startkey"] == ["pl:test", None, None]
 
-    def test_playlist_id_in_selector(self):
+    def test_playlist_id_in_endkey(self):
         dao, db = self._dao()
 
         dao.items_page("pl:my_list", None, start=0, limit=PAGE_SIZE)
 
-        assert db.find_page_calls[0]["selector"]["playlist_id"] == "pl:my_list"
+        call = db.query_view_range_calls[0]
+        assert call["endkey"][0] == "pl:my_list"
 
     def test_limit_forwarded(self):
         dao, db = self._dao()
 
         dao.items_page("pl:test", None, start=0, limit=12)
 
-        assert db.find_page_calls[0]["limit"] == 12
+        assert db.query_view_range_calls[0]["limit"] == 12
 
     def test_item_with_missing_video_is_skipped(self):
         items = [make_playlist_item("v1"), make_playlist_item("v_gone")]
@@ -106,14 +121,37 @@ class TestItemsPage:
         assert "target" in row
         assert row["target"]["_id"] == "v1"
 
-    def test_uses_sort_by_position(self):
+    def test_bookmark_encodes_last_row_key_and_docid(self):
+        items = [make_playlist_item("v1", position=0), make_playlist_item("v2", position=1)]
+        videos = [make_video("v1"), make_video("v2")]
+        dao, _ = self._dao(items, videos)
+
+        _, bm = dao.items_page("pl:test", None, 0, PAGE_SIZE)
+
+        assert bm is not None
+        key, docid = json.loads(bm)
+        assert docid == "pi:v2"
+
+    def test_no_bookmark_when_no_rows_returned(self):
+        dao, _ = self._dao()
+
+        _, bm = dao.items_page("pl:test", None, 0, PAGE_SIZE)
+
+        assert bm is None
+
+    def test_uses_playlist_items_by_playlist_type_view(self):
         dao, db = self._dao()
 
         dao.items_page("pl:test", None, 0, PAGE_SIZE)
 
-        sort = db.find_page_calls[0]["sort"]
-        sort_keys = [list(s.keys())[0] for s in sort]
-        assert "position" in sort_keys
+        assert db.query_view_range_calls[0]["view"] == "playlist_items_by_playlist_type"
+
+    def test_include_docs_enabled(self):
+        dao, db = self._dao()
+
+        dao.items_page("pl:test", None, 0, PAGE_SIZE)
+
+        assert db.query_view_range_calls[0]["include_docs"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +160,8 @@ class TestItemsPage:
 
 class TestCountItems:
     def _dao(self, count: int):
-        rows = [{"key": "pl:test", "value": count}] if count > 0 else []
-        db = FakeDB(query_view_rows=rows)
+        rows = [{"key": ["pl:test"], "value": count}] if count > 0 else []
+        db = FakeDB(view_range_rows=rows)
         return PlaylistDAO(db), db
 
     def test_returns_correct_count(self):
@@ -134,10 +172,15 @@ class TestCountItems:
         dao, _ = self._dao(0)
         assert dao.count_items("pl:test") == 0
 
-    def test_uses_playlist_id_as_view_key(self):
+    def test_uses_item_counts_by_playlist_view(self):
         dao, db = self._dao(2)
         dao.count_items("pl:my_list")
-        assert db.query_view_calls[0]["keys"] == ["pl:my_list"]
+        call = db.query_view_range_calls[0]
+        assert call["view"] == "item_counts_by_playlist"
+        assert call["startkey"] == ["pl:my_list", None]
+        assert call["endkey"] == ["pl:my_list", {}]
+        assert call["reduce"] is True
+        assert call["group_level"] == 1
 
 
 # ---------------------------------------------------------------------------

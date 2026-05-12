@@ -486,6 +486,12 @@ a.menu-item {
 .playlist-dir-resume-label {
   color: var(--text);
   font-size: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
 }
 
 .playlist-restart-link {

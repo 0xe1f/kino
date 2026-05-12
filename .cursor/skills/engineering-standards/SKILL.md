@@ -35,15 +35,18 @@ Any lists expected to generate a large-ish amount of data (100 or more rows) sho
 
 ## CouchDB views
 
-Use CouchDB map/reduce views (not Mango `_find`) for:
+**Always** use CouchDB map/reduce views. Never use Mango `_find`.
 
+Do not call `_find`, `find_by_mango`, `find_many`, `find_page`, or `find_one`. These methods have been removed. Mango queries of any kind are a prohibited pattern — they do not use the B-tree and degrade linearly with collection size.
+
+Use views for:
+
+- **All document lookups by field** (email, username, source, owner, parent, type, etc.). Every access pattern that would have been a Mango filter must have a dedicated view.
 - **Aggregations** (counts, sums, first/last in a sorted set). Never fetch a large result set just to count it in Python.
-- **Multi-key batch lookups** that would otherwise require `$in`. Use `query_view(keys=[...], group=True)` instead.
-- **Sorted pagination** where the sort order must come from the database (e.g. history sorted by date descending).
+- **Multi-key batch lookups**. Use `query_view(keys=[...], group=True)` instead of any `$in`-style query.
+- **Sorted pagination** where the sort order must come from the database (e.g. history sorted by date descending, items by position).
 
 All views live in `_design/kino`, defined in `db.py::ensure_design_docs()`. Any new view must also be warmed at startup (call `query_view` or `query_view_range` with an empty/bounded query after `ensure_design_docs()`).
-
-`$in` queries are a red flag — they do not use the B-tree efficiently and degrade linearly with collection size. Audit and replace them with views.
 
 ## Networking
 

@@ -38,10 +38,17 @@
       <div class="playlist-dir-meta">
         <span class="muted">
           {%- if pair.counts.playlists > 0 -%}
-            {{ pair.counts.playlists }} playlist{{ 's' if pair.counts.playlists != 1 }} &middot;
+            {{ pair.counts.playlists }} playlist(s)
           {%- endif -%}
-          {{ pair.counts.videos }} video{{ 's' if pair.counts.videos != 1 }}
+          {% if pair.counts.playlists > 0 and pair.counts.videos > 0 %}
+            &middot;
+          {% endif %}
+          {%- if pair.counts.videos > 0 -%}
+            {{ pair.counts.videos }} video(s)
+          {%- endif -%}
         </span>
+      </div>
+      <div class="playlist-dir-meta">
         {% if pair.resume_label %}
           <span class="playlist-dir-resume-label">{{ pair.resume_label }}</span>
         {% endif %}

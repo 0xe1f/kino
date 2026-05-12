@@ -26,13 +26,29 @@ class VideoDAO:
         return self._db.get(video_id)
 
     def list_all(self) -> list[dict[str, Any]]:
-        return self._db.find_many("video")
+        rows = self._db.query_view_range(
+            "kino", "docs_by_type",
+            startkey=["video", None], endkey=["video", {}],
+            include_docs=True,
+        )
+        return [row["doc"] for row in rows if row.get("doc")]
 
     def exists_any(self) -> bool:
-        return self._db.find_one("video") is not None
+        rows = self._db.query_view_range(
+            "kino", "docs_by_type",
+            startkey=["video", None], endkey=["video", {}],
+            limit=1,
+            include_docs=False,
+        )
+        return len(rows) > 0
 
     def list_by_source(self, source: str) -> list[dict[str, Any]]:
-        return self._db.find_many("video", source=source)
+        rows = self._db.query_view(
+            "kino", "videos_by_source",
+            keys=[source],
+            include_docs=True,
+        )
+        return [row["doc"] for row in rows if row.get("doc")]
 
     def save(self, doc: dict[str, Any]) -> dict[str, Any]:
         return self._db.save(doc)
