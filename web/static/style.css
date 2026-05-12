@@ -91,9 +91,28 @@ input { width: 100%; }
 }
 
 .brand {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--brand);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.brand-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg);
+}
+
+.brand-logo {
+  height: 36px;
+  width: 36px;
+  object-fit: contain;
+  display: block;
 }
 
 .icon-button {

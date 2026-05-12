@@ -20,12 +20,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>kino</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}" />
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}" />
+    <link rel="icon" type="image/png" sizes="16x16" href="{{ url_for('static', filename='favicon-16.png') }}" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:FILL@0..1" />
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
   <body data-is-authenticated="{{ 'true' if user else 'false' }}">
     <header class="site-header">
-      <a href="{{ url_for('index') }}" class="brand">kino</a>
+      <a href="{{ url_for('index') }}" class="brand">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="kino" class="brand-logo" />
+      </a>
       <nav>
         <button id="theme-toggle" class="icon-button" type="button" aria-label="Toggle theme">
           <span class="material-symbols-rounded" id="theme-toggle-icon">
