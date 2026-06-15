@@ -26,6 +26,18 @@ class PlaybackDAO:
     def get_progress(self, user_id: str, video_id: str) -> dict[str, Any] | None:
         return self._db.get(f"watch_progress:{user_id}:{video_id}")
 
+    def get_progress_batch(self, user_id: str, video_ids: list[str]) -> dict[str, float]:
+        """Return {video_id: last_position_seconds} for the given video IDs."""
+        if not video_ids:
+            return {}
+        keys = [f"watch_progress:{user_id}:{vid}" for vid in video_ids]
+        docs = self._db.get_many(keys)
+        return {
+            doc["video_id"]: float(doc.get("last_position_seconds", 0.0))
+            for doc in docs.values()
+            if doc.get("video_id") and doc.get("last_position_seconds")
+        }
+
     def upsert_progress(
         self,
         user_id: str,

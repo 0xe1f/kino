@@ -21,10 +21,18 @@
       <span class="row-prefix" data-position-label="{{ row_prefix }}">{% if active_row %}▶{% else %}{{ row_prefix }}{% endif %}</span>
     {% endif %}
     {% if row_thumb %}
-      <img src="{{ row_thumb }}" alt="{{ video.title }} thumbnail" class="thumb thumb-sm" />
+      {% set progress_pos = (progress_map | default({})).get(video._id, 0) %}
+      {% set progress_pct = ((progress_pos / video.duration) * 100) | round(1) if (video.duration and progress_pos > 0) else 0 %}
+      <div class="thumb-wrap thumb-sm">
+        <img src="{{ row_thumb }}" alt="{{ video.title }} thumbnail" class="thumb" />
+        <div class="thumb-duration">{{ format_duration(video.duration) }}</div>
+        {% if progress_pct > 0 %}
+          <div class="thumb-progress-bar"></div>
+        {% endif %}
+        <div class="thumb-progress" style="width: {{ progress_pct }}%"></div>
+      </div>
     {% endif %}
     <span class="row-title">{{ video.title }}</span>
-    <span class="muted">{{ format_duration(video.duration) }}</span>
     {% if row_meta %}
       <span class="muted">{{ row_meta }}</span>
     {% endif %}

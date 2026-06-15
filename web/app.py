@@ -251,6 +251,21 @@ def profile():
     )
 
 
+def _progress_map_for_items(
+    user: dict[str, Any] | None,
+    items: list[dict[str, Any]],
+) -> dict[str, float]:
+    """Return {video_id: last_position_seconds} for video items visible to user."""
+    if not user or not items:
+        return {}
+    video_ids = [
+        pair["target"]["_id"]
+        for pair in items
+        if pair.get("item", {}).get("item_type") != "playlist"
+    ]
+    return playback.get_progress_batch(user["user_id"], video_ids)
+
+
 def _render_library_section(user: dict[str, Any], section: str):
     if section == "history":
         with ThreadPoolExecutor(max_workers=2) as ex:
@@ -258,8 +273,11 @@ def _render_library_section(user: dict[str, Any], section: str):
             f_total = ex.submit(playback.count_history_for_user, user["user_id"])
             history_rows, next_bookmark = f_rows.result()
             total = f_total.result()
+        video_ids = [row["video"]["_id"] for row in history_rows]
+        progress_map = playback.get_progress_batch(user["user_id"], video_ids)
         content = {
             "history_rows": history_rows,
+            "progress_map": progress_map,
             "total": total,
             "has_more": len(history_rows) == PAGE_SIZE,
             "next_bookmark": next_bookmark or "",
@@ -276,6 +294,7 @@ def _render_library_section(user: dict[str, Any], section: str):
             "playlist": favorites,
             "playlist_id": favorites["_id"],
             "items": items,
+            "progress_map": _progress_map_for_items(user, items),
             "total": total,
             "has_more": len(items) == PAGE_SIZE,
             "next_bookmark": next_bookmark or "",
@@ -294,6 +313,7 @@ def _render_library_section(user: dict[str, Any], section: str):
             "playlist": watch_later,
             "playlist_id": watch_later["_id"],
             "items": items,
+            "progress_map": _progress_map_for_items(user, items),
             "total": total,
             "has_more": len(items) == PAGE_SIZE,
             "next_bookmark": next_bookmark or "",
@@ -416,6 +436,7 @@ def playlist_view(playlist_id: str):
             playlist_id=pid,
             is_user_playlist=True,
             items=items,
+            progress_map=_progress_map_for_items(user, items),
             total=total,
             has_more=len(items) == PAGE_SIZE,
             next_bookmark=next_bookmark or "",
@@ -563,6 +584,7 @@ def api_playlist_items(playlist_id: str):
     html = render_template(
         "_playlist_items.html",
         items=items,
+        progress_map=_progress_map_for_items(user, items),
         playlist_id=pid,
         user=user,
         context_playlist_id=pid,
@@ -586,9 +608,14 @@ def api_playlist_nav_items(playlist_id: str):
     user = g.get("user")
     current_video_id = normalize_video_id(request.args.get("current_video_id", ""))
     items = playlists.video_items_all(pid)
+    progress_map: dict[str, float] = {}
+    if user:
+        video_ids = [pair["target"]["_id"] for pair in items]
+        progress_map = playback.get_progress_batch(user["user_id"], video_ids)
     html = render_template(
         "_nav_video_items.html",
         items=items,
+        progress_map=progress_map,
         playlist_id=pid,
         user=user,
         current_video_id=current_video_id,
@@ -603,7 +630,9 @@ def api_playlist_nav_items(playlist_id: str):
 def api_history_items():
     bookmark = request.args.get("bookmark") or None
     rows, next_bookmark = playback.list_history_page(g.user, playlists, bookmark, PAGE_SIZE)
-    html = render_template("_history_items.html", history_rows=rows, user=g.user)
+    video_ids = [row["video"]["_id"] for row in rows]
+    progress_map = playback.get_progress_batch(g.user["user_id"], video_ids)
+    html = render_template("_history_items.html", history_rows=rows, progress_map=progress_map, user=g.user)
     return jsonify({
         "html": html,
         "has_more": len(rows) == PAGE_SIZE,

@@ -169,13 +169,23 @@ function setupVideoPlayer() {
 
   // Seek to resume position as soon as metadata is available (readyState >= 1).
   // This must happen before canplay so the seek is already applied when we play.
+  // Skip resume if the saved position is too close to the end — either within
+  // the last 15s (covers heartbeat lag on short clips) or past 95% (long content).
+  const RESUME_END_SECONDS = 15;
+  const RESUME_END_RATIO   = 0.95;
   if (resumePosition > 0) {
-    if (player.readyState >= 1) {
+    const applyResume = () => {
+      if (player.duration > 0) {
+        const remaining = player.duration - resumePosition;
+        const ratio = resumePosition / player.duration;
+        if (remaining <= RESUME_END_SECONDS || ratio >= RESUME_END_RATIO) return;
+      }
       player.currentTime = resumePosition;
+    };
+    if (player.readyState >= 1) {
+      applyResume();
     } else {
-      player.addEventListener("loadedmetadata", () => {
-        player.currentTime = resumePosition;
-      }, { once: true });
+      player.addEventListener("loadedmetadata", applyResume, { once: true });
     }
   }
 
@@ -200,12 +210,15 @@ function setupVideoPlayer() {
     .catch(() => {});
 
   const shouldTrackProgress = isAuthenticatedUser();
-  const sendProgress = async () => {
+  let lastSavedAt = 0;
+  const sendProgress = async (positionOverride) => {
+    lastSavedAt = Date.now();
+    const position = positionOverride !== undefined ? positionOverride : player.currentTime;
     await requestJSON(`/api/video/${encodeURIComponent(videoId)}/progress`, {
       method: "POST",
       body: JSON.stringify({
         playlist_id: playlistId,
-        position_seconds: player.currentTime,
+        position_seconds: position,
       }),
     });
   };
@@ -213,21 +226,27 @@ function setupVideoPlayer() {
   let heartbeat = null;
   if (shouldTrackProgress) {
     heartbeat = setInterval(() => {
-      if (!player.paused) {
+      if (!player.paused && Date.now() - lastSavedAt >= 15000) {
         sendProgress().catch(() => {});
       }
-    }, 10000);
+    }, 15000);
   }
+
+  const onPause = () => {
+    if (shouldTrackProgress) sendProgress().catch(() => {});
+  };
+  player.addEventListener("pause", onPause);
 
   const onBeforeUnload = () => {
     if (heartbeat) clearInterval(heartbeat);
-    if (shouldTrackProgress && !player.paused) {
-      sendProgress().catch(() => {});
-    }
+    if (shouldTrackProgress) sendProgress().catch(() => {});
   };
   window.addEventListener("beforeunload", onBeforeUnload);
 
   const onEnded = () => {
+    // Save full duration so the progress bar shows as complete and the resume
+    // threshold ignores it on the next play.
+    if (shouldTrackProgress) sendProgress(player.duration).catch(() => {});
     const nextLink = document.querySelector("a[data-nav-next]");
     if (!nextLink) return;
     const url = new URL(nextLink.href, window.location.href);
@@ -264,10 +283,8 @@ function setupVideoPlayer() {
     if (heartbeat) clearInterval(heartbeat);
     window.removeEventListener("beforeunload", onBeforeUnload);
     player.removeEventListener("canplay", onCanPlay);
+    player.removeEventListener("pause", onPause);
     player.removeEventListener("ended", onEnded);
-    if (shouldTrackProgress && !player.paused) {
-      sendProgress().catch(() => {});
-    }
   };
 }
 

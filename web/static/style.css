@@ -28,6 +28,7 @@ html[data-theme="night"] {
   --link: #7ec5ff;
   --error: #ff8f8f;
   --row-hover: #1d2632;
+  --accent: #105aba;
 }
 
 html[data-theme="day"] {
@@ -43,6 +44,7 @@ html[data-theme="day"] {
   --link: #1f6fd6;
   --error: #bf3b3b;
   --row-hover: #e7eef8;
+  --accent: #105aba;
 }
 
 body {
@@ -394,6 +396,49 @@ a.menu-item {
   flex: 0 0 128px;
 }
 
+.thumb-wrap {
+  display: grid;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #000;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: 1fr auto auto;
+}
+
+.thumb-wrap .thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  grid-row: 1 / span 3;
+  grid-column: 1 / span 2;
+}
+
+.thumb-duration {
+  background: rgba(0,0,0,0.6);
+  grid-column: 2;
+  grid-row: 2;
+  color: #fff;
+  font-size: 10pt;
+  padding: 2px 4px;
+}
+
+.thumb-progress-bar,
+.thumb-progress {
+  height: 6px;
+  grid-column: 1 / span 2;
+}
+
+.thumb-progress-bar {
+  background: #ffffff7f;
+  grid-row: 3 / span 3;
+}
+
+.thumb-progress {
+  background: var(--accent);
+  grid-row: 3;
+}
+
 .row-prefix {
   flex: 0 0 2.5em;
   width: 1.5em;
@@ -591,7 +636,7 @@ a.menu-item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #1f6fd6;
+  background: var(--accent);
   color: #fff;
 }
 
