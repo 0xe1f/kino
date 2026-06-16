@@ -322,7 +322,7 @@ function setupVideoPlayer() {
 
 let activeTeardown = null;
 
-async function switchVideo(videoId, playlistId) {
+async function switchVideo(videoId, playlistId, { pushHistory = true } = {}) {
   if (activeTeardown) {
     activeTeardown();
     activeTeardown = null;
@@ -381,7 +381,9 @@ async function switchVideo(videoId, playlistId) {
   const newUrl = playlistId
     ? `/video/${encodeURIComponent(videoId)}?playlist_id=${encodeURIComponent(playlistId)}`
     : `/video/${encodeURIComponent(videoId)}`;
-  history.pushState({ videoId, playlistId: playlistId || null }, "", newUrl);
+  if (pushHistory) {
+    history.pushState({ videoId, playlistId: playlistId || null }, "", newUrl);
+  }
 
   activeTeardown = setupVideoPlayer();
 }
@@ -485,7 +487,7 @@ function setupVideoNavInterception() {
   window.addEventListener("popstate", (event) => {
     const state = event.state;
     if (state && state.videoId) {
-      switchVideo(state.videoId, state.playlistId || null);
+      switchVideo(state.videoId, state.playlistId || null, { pushHistory: false });
     } else {
       window.location.reload();
     }
