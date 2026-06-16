@@ -29,6 +29,8 @@ html[data-theme="night"] {
   --error: #ff8f8f;
   --row-hover: #1d2632;
   --accent: #105aba;
+  --progress: #ff2c2c;
+  --progress-bar: #ffffff9f;
 }
 
 html[data-theme="day"] {
@@ -45,6 +47,8 @@ html[data-theme="day"] {
   --error: #bf3b3b;
   --row-hover: #e7eef8;
   --accent: #105aba;
+  --progress: #ff2c2c;
+  --progress-bar: #ffffff9f;
 }
 
 body {
@@ -385,7 +389,6 @@ a.menu-item {
 }
 
 .thumb {
-  border-radius: 8px;
   object-fit: cover;
   background: #000;
 }
@@ -399,7 +402,7 @@ a.menu-item {
 .thumb-wrap {
   display: grid;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 5px;
   background: #000;
   grid-template-columns: 1fr auto;
   grid-template-rows: 1fr auto auto;
@@ -425,17 +428,22 @@ a.menu-item {
 
 .thumb-progress-bar,
 .thumb-progress {
-  height: 6px;
+  height: 5px;
   grid-column: 1 / span 2;
 }
 
 .thumb-progress-bar {
-  background: #ffffff7f;
+  display: none;
+  background: var(--progress-bar);
   grid-row: 3 / span 3;
 }
 
+.thumb-wrap.has-progress .thumb-progress-bar {
+  display: block;
+}
+
 .thumb-progress {
-  background: var(--accent);
+  background: var(--progress);
   grid-row: 3;
 }
 

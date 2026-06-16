@@ -312,6 +312,11 @@ function setupVideoPlayer() {
     player.removeEventListener("timeupdate", onTimeUpdate);
     player.removeEventListener("pause", onPause);
     player.removeEventListener("ended", onEnded);
+    // Snapshot the sidebar thumbnail for the departing video at its last
+    // known position, matching YouTube's behavior of updating on video change.
+    if (committed) {
+      _updateSidebarRowProgress(videoId, player.currentTime, player.duration);
+    }
   };
 }
 
@@ -418,6 +423,19 @@ function _updateNavControls(playlistNav, playlistId) {
     replaceNavSlot(prevEl, playlistNav.previous_video_id);
     replaceNavSlot(nextEl, playlistNav.next_video_id);
   }
+}
+
+function _updateSidebarRowProgress(videoId, position, duration) {
+  const list = document.querySelector("ul[data-nav-playlist-id]");
+  if (!list) return;
+  const pct = duration > 0 ? Math.min((position / duration) * 100, 100) : 0;
+  list.querySelectorAll(`.video-row[data-video-id="${CSS.escape(videoId)}"]`).forEach((row) => {
+    const thumbWrap = row.querySelector(".thumb-wrap");
+    if (!thumbWrap) return;
+    const fill = thumbWrap.querySelector(".thumb-progress");
+    if (fill) fill.style.width = `${pct.toFixed(1)}%`;
+    thumbWrap.classList.toggle("has-progress", pct > 0);
+  });
 }
 
 function _updateSidebarActiveRow(videoId) {
