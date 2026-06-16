@@ -683,16 +683,11 @@ def api_theme():
 @app.route("/api/video/<path:video_id>/play", methods=["POST"])
 def api_video_play(video_id: str):
     vid = normalize_video_id(video_id)
-    playlist_id = (request.json or {}).get("playlist_id")
     video = videos.get(vid)
     if not video:
         return jsonify({"error": "Video not found"}), 404
 
     videos.increment_views(video)
-
-    user = current_user()
-    if user:
-        playback.upsert_history(user["user_id"], vid, playlist_id, position=0.0)
 
     return jsonify({"ok": True, "views": video["views"]})
 

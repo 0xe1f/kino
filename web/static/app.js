@@ -201,7 +201,6 @@ function setupVideoPlayer() {
 
   requestJSON(`/api/video/${encodeURIComponent(videoId)}/play`, {
     method: "POST",
-    body: JSON.stringify({ playlist_id: playlistId }),
   })
     .then((result) => {
       const view = document.getElementById("view-count");
@@ -211,6 +210,13 @@ function setupVideoPlayer() {
 
   const shouldTrackProgress = isAuthenticatedUser();
   let lastSavedAt = 0;
+  // Track actual watched seconds (excludes paused/seeking time) to gate
+  // progress writes behind a meaningful-watch threshold.
+  const COMMIT_THRESHOLD_SECONDS = 15;
+  let watchedSeconds = 0;
+  let committed = false;
+  let lastTimeupdateTime = null;
+
   const sendProgress = async (positionOverride) => {
     lastSavedAt = Date.now();
     const position = positionOverride !== undefined ? positionOverride : player.currentTime;
@@ -223,29 +229,49 @@ function setupVideoPlayer() {
     });
   };
 
+  const onTimeUpdate = () => {
+    if (player.paused || player.seeking) {
+      lastTimeupdateTime = null;
+      return;
+    }
+    const now = Date.now();
+    if (lastTimeupdateTime !== null) {
+      const elapsed = (now - lastTimeupdateTime) / 1000;
+      // Cap per-tick contribution to avoid large jumps after buffering stalls.
+      watchedSeconds += Math.min(elapsed, 1.5);
+      if (!committed && watchedSeconds >= COMMIT_THRESHOLD_SECONDS) {
+        committed = true;
+      }
+    }
+    lastTimeupdateTime = now;
+  };
+  player.addEventListener("timeupdate", onTimeUpdate);
+
   let heartbeat = null;
   if (shouldTrackProgress) {
     heartbeat = setInterval(() => {
-      if (!player.paused && Date.now() - lastSavedAt >= 15000) {
+      if (committed && !player.paused && Date.now() - lastSavedAt >= 15000) {
         sendProgress().catch(() => {});
       }
     }, 15000);
   }
 
   const onPause = () => {
-    if (shouldTrackProgress) sendProgress().catch(() => {});
+    lastTimeupdateTime = null;
+    if (shouldTrackProgress && committed) sendProgress().catch(() => {});
   };
   player.addEventListener("pause", onPause);
 
   const onBeforeUnload = () => {
     if (heartbeat) clearInterval(heartbeat);
-    if (shouldTrackProgress) sendProgress().catch(() => {});
+    if (shouldTrackProgress && committed) sendProgress().catch(() => {});
   };
   window.addEventListener("beforeunload", onBeforeUnload);
 
   const onEnded = () => {
-    // Save full duration so the progress bar shows as complete and the resume
-    // threshold ignores it on the next play.
+    // Always commit on ended regardless of watch threshold — finishing a video
+    // is unambiguous intent. Also saves full duration so the resume threshold
+    // skips it on next play.
     if (shouldTrackProgress) sendProgress(player.duration).catch(() => {});
     const nextLink = document.querySelector("a[data-nav-next]");
     if (!nextLink) return;
@@ -283,6 +309,7 @@ function setupVideoPlayer() {
     if (heartbeat) clearInterval(heartbeat);
     window.removeEventListener("beforeunload", onBeforeUnload);
     player.removeEventListener("canplay", onCanPlay);
+    player.removeEventListener("timeupdate", onTimeUpdate);
     player.removeEventListener("pause", onPause);
     player.removeEventListener("ended", onEnded);
   };
